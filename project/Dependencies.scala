@@ -15,5 +15,5 @@ object Dependencies {
     "org.apache.spark" %% "spark-sql" % "2.3.2",
     "org.apache.spark" %% "spark-graphx" % "2.3.2",
     "org.apache.spark" %% "spark-mllib" % "2.3.2"
-    )
+  )
 }
