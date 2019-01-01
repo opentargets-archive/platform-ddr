@@ -1,0 +1,29 @@
+sudo: false
+language: scala
+scala:
+  - 2.11.12
+jdk:
+  - oraclejdk8
+script:
+  - sbt ++$TRAVIS_SCALA_VERSION clean compile
+  - sbt ++$TRAVIS_SCALA_VERSION coverage test coverageReport
+  - sbt ++$TRAVIS_SCALA_VERSION assembly
+# deploy:
+#   provider: releases
+#   api_key:
+#     secure: ""
+#   file_glob: true
+#   file:
+#     - "target/scala-2.11/*.jar"
+#   on:
+#     repo: opentargets/platform-ddr
+#     tags: true
+#   skip_cleanup: true
+notifications:
+  email:
+    recipients:
+    - ops@opentargets.org
+    on_success: never
+    on_failure: always
+after_success:
+  - bash <(curl -s https://codecov.io/bash)
