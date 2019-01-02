@@ -50,6 +50,14 @@ object Main extends LazyLogging {
 
         logger.info(s"process file $fname")
         // TODO code comes here to go
+        val assocsDF = Associations.parseFile(fname, config.direct, config.threshold)
+        assocsDF.printSchema
+
+        val similarTargets = Associations.computeSimilarTargets(assocsDF)
+        val similarDiseases = Associations.computeSimilarDiseases(assocsDF)
+
+        similarTargets.write.json("./ddr_targets")
+        similarDiseases.write.json("./ddr_diseases")
 
         ss.stop
 
