@@ -62,19 +62,33 @@ object Associations {
       StructField("disease", schemaDisease) ::
       StructField("association_score", schemaAssociationScore) :: Nil)
 
-  def parseFile(filename: String, directAssocs: Boolean, scoreThreshold: Double)(implicit ss: SparkSession): DataFrame = {
+  def parseFile(filename: String, directAssocs: Boolean, scoreThreshold: Double, evsThreshold: Long)(implicit ss: SparkSession): DataFrame = {
     val ff = ss.read
       .option("badRecordsPath", "/tmp/badRecordsPath")
       //.schema(schema)
       .json(filename)
 
-    ff.filter(column("is_direct") === directAssocs and column("association_score.overall") geq scoreThreshold)
+    ff.filter((column("is_direct") === directAssocs) and
+      (column("association_score.overall") geq scoreThreshold) and
+      (column("evidence_count.total") geq evsThreshold))
+      .select(column("target.id").as("target_id"), column("target.gene_info.symbol").as("target_symbol"),
+        column("disease.id").as("disease_id"), column("disease.efo_info.label").as("disease_label"),
+        column("association_score.overall").as("score"),
+        column("evidence_count.total").as("count"))
       .persist
   }
 
-  def computeSimilarTargets(df: DataFrame): DataFrame = ???
+  def computeSimilarTargets(df: DataFrame): DataFrame = {
+    df.groupBy(column("target_id")).agg(collect_list("disease_id").as("disease_ids"),
+      collect_list("score").as("disease_scores"),
+      collect_list("count").as("disease_counts"))
+  }
 
-  def computeSimilarDiseases(df: DataFrame): DataFrame = ???
+  def computeSimilarDiseases(df: DataFrame): DataFrame = {
+    df.groupBy(column("disease_id")).agg(collect_list("target_id").as("target_ids"),
+      collect_list("score").as("target_scores"),
+      collect_list("count").as("target_counts"))
+  }
 
   private[ddr] def schemaComposer(l: List[String], lType: DataType): StructType =
     StructType(l.map(x => StructField(x, lType)))

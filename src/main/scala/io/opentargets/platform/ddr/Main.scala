@@ -7,9 +7,11 @@ import scopt.OptionParser
 // import org.apache.spark.sql.functions._
 
 
-case class CommandLineArgs(file: Option[String] = None,
-                           threshold: Double = 0.0,
+case class CommandLineArgs(inputFile: Option[String] = None,
+                           scoreThreshold: Double = 0.1,
                            direct: Boolean = true,
+                           outputPath: Option[String] = Some("output/"),
+                           evsThreshold: Long = 3,
                            kwargs: Map[String, String] = Map())
 
 object Main extends LazyLogging {
@@ -34,7 +36,7 @@ object Main extends LazyLogging {
     val logLevel = config.kwargs.getOrElse("log-level", "ERROR")
     val sparkURI = config.kwargs.getOrElse("spark-uri", "local[*]")
 
-    config.file match {
+    config.inputFile match {
       case Some(fname) =>
         // do code here
         val conf: SparkConf = new SparkConf()
@@ -49,15 +51,15 @@ object Main extends LazyLogging {
         ss.sparkContext.setLogLevel(logLevel)
 
         logger.info(s"process file $fname")
-        // TODO code comes here to go
-        val assocsDF = Associations.parseFile(fname, config.direct, config.threshold)
+        val assocsDF = Associations.parseFile(fname, config.direct, config.scoreThreshold, config.evsThreshold)
         assocsDF.printSchema
+        assocsDF.show(false)
 
         val similarTargets = Associations.computeSimilarTargets(assocsDF)
         val similarDiseases = Associations.computeSimilarDiseases(assocsDF)
 
-        similarTargets.write.json("./ddr_targets")
-        similarDiseases.write.json("./ddr_diseases")
+        similarTargets.write.json(config.outputPath.get + "ddr_targets/")
+        similarDiseases.write.json(config.outputPath.get + "ddr_diseases/")
 
         ss.stop
 
@@ -78,23 +80,35 @@ object Main extends LazyLogging {
   val parser: OptionParser[CommandLineArgs] = new OptionParser[CommandLineArgs](progName) {
     head(progName)
 
-    opt[String]("file")
-      .abbr("f")
-      .valueName("<input-file>")
-      .action((x, c) => c.copy(file = Option(x)))
+    opt[String]("input-file")
+      .abbr("i")
+      .valueName("<filename>")
+      .action((x, c) => c.copy(inputFile = Option(x)))
       .text("file contains all associations from the OT association dump (format: jsonl)")
 
-    opt[Double]("threshold")
+    opt[Double]("score-threshold")
       .abbr("t")
-      .valueName("<threshold>")
-      .action((x, c) => c.copy(threshold = x))
-      .text("the minimum value of the assoc scores (default: 0.0)")
+      .valueName("<value>")
+      .action((x, c) => c.copy(scoreThreshold = x))
+      .text("the minimum value of the assoc scores >= (default: 0.1)")
+
+    opt[Long]("evidence-threshold")
+      .abbr("e")
+      .valueName("<value>")
+      .action((x, c) => c.copy(evsThreshold = x))
+      .text("the minimum number of evidences of the assoc total count >= (default: 3)")
 
     opt[Boolean]("direct")
       .abbr("d")
       .valueName("<is-direct>")
       .action((x, c) => c.copy(direct = x))
       .text("only direct associations if it is true (default: true)")
+
+    opt[String]("output-path")
+      .abbr("o")
+      .valueName("<path>")
+      .action((x, c) => c.copy(outputPath = Option(x)))
+      .text("output path where data-driven relations will be dump (default: output/)")
 
     opt[Map[String, String]]("kwargs")
       .valueName("k1=v1,k2=v2...")
