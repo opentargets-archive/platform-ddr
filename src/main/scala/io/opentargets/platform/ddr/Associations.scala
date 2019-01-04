@@ -1,5 +1,7 @@
 package io.opentargets.platform.ddr
 
+import io.opentargets.platform.ddr.algorithms.SimilarityIndex
+import io.opentargets.platform.ddr.algorithms.SimilarityIndex.SimilarityIndexParams
 import org.apache.spark.sql._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
@@ -78,16 +80,16 @@ object Associations {
       .persist
   }
 
-  def computeSimilarTargets(df: DataFrame): DataFrame = {
-    df.groupBy(column("target_id")).agg(collect_list("disease_id").as("disease_ids"),
-      collect_list("score").as("disease_scores"),
-      collect_list("count").as("disease_counts"))
+  def computeSimilarTargets(df: DataFrame): Option[DataFrame] = {
+    val params = SimilarityIndexParams()
+    val algo = new SimilarityIndex(df, params)
+    algo.run(groupBy = "target_id", aggBy = Seq("disease_id", "disease_label", "score", "count"))
   }
 
-  def computeSimilarDiseases(df: DataFrame): DataFrame = {
-    df.groupBy(column("disease_id")).agg(collect_list("target_id").as("target_ids"),
-      collect_list("score").as("target_scores"),
-      collect_list("count").as("target_counts"))
+  def computeSimilarDiseases(df: DataFrame): Option[DataFrame] = {
+    val params = SimilarityIndexParams()
+    val algo = new SimilarityIndex(df, params)
+    algo.run(groupBy = "disease_id", aggBy = Seq("target_id", "score", "count"))
   }
 
   private[ddr] def schemaComposer(l: List[String], lType: DataType): StructType =

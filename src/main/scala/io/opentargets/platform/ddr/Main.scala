@@ -53,13 +53,12 @@ object Main extends LazyLogging {
         logger.info(s"process file $fname")
         val assocsDF = Associations.parseFile(fname, config.direct, config.scoreThreshold, config.evsThreshold)
         assocsDF.printSchema
-        assocsDF.show(false)
 
         val similarTargets = Associations.computeSimilarTargets(assocsDF)
         val similarDiseases = Associations.computeSimilarDiseases(assocsDF)
 
-        similarTargets.write.json(config.outputPath.get + "ddr_targets/")
-        similarDiseases.write.json(config.outputPath.get + "ddr_diseases/")
+        similarTargets.get.write.json(config.outputPath.get + "ddr_targets/")
+        similarDiseases.get.write.json(config.outputPath.get + "ddr_diseases/")
 
         ss.stop
 
