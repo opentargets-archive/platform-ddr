@@ -3,7 +3,7 @@ package io.opentargets.platform.ddr.algorithms
 import com.typesafe.scalalogging.LazyLogging
 import io.opentargets.platform.ddr.algorithms.SimilarityIndex.SimilarityIndexParams
 import org.apache.spark.ml.Pipeline
-import org.apache.spark.ml.feature.{BucketedRandomProjectionLSH, CountVectorizer, IDF, VectorAssembler}
+import org.apache.spark.ml.feature._
 import org.apache.spark.sql.functions.{collect_list, column, mean}
 import org.apache.spark.sql.DataFrame
 
@@ -23,9 +23,14 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
         .setInputCol("tf")
         .setOutputCol("tf_idf")
 
+      val percentileDisct = new QuantileDiscretizer()
+        .setInputCol("mean_count")
+        .setOutputCol("q_count")
+        .setNumBuckets(params.numPercentiles)
+
       // Seq("disease_id", "disease_label", "score", "count", "mean_score", "mean_count")
       val assembler = new VectorAssembler()
-        .setInputCols(Array("tf_idf", "mean_score", "mean_count"))
+        .setInputCols(Array("tf_idf", /*"mean_score",*/ "q_count"))
         .setOutputCol("features")
 
       val brp = new BucketedRandomProjectionLSH()
@@ -35,7 +40,7 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
         .setOutputCol("hashes")
 
       val pipeline = new Pipeline()
-        .setStages(Array(cv, idf, assembler))
+        .setStages(Array(cv, idf /*, assembler*/))
 
       val tx = pipeline.fit(x._2)
         .transform(x._2)
@@ -71,6 +76,7 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
 object SimilarityIndex {
 
   case class SimilarityIndexParams(bucketLen: Double = 3, minDF: Int = 2,
-                                   binaryMode: Boolean = false, threshold: Double = 2.5)
+                                   binaryMode: Boolean = false, threshold: Double = 2.5,
+                                   numPercentiles: Int = 10)
 
 }
