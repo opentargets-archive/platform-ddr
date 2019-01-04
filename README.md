@@ -14,6 +14,16 @@ Assembly command will generate a _fat-jar_ standalone _jar_ that you can run loc
 a spark cluster. This _jar_ already contains a default configuration file that you might want to copy
 and edit for your own data.
 
+### Run the fat-jar
+
+```sh
+# get the fat.jar from the assembly output folder
+java -Xms4096M -Xmx4096M -Xss10M -jar <fat.jar> \
+    -i 18.12_association_data.json.gz \
+    -t 0.1 -e 3 -o output/ -d true \
+    --kwargs log-level=WARN
+```
+
 # Copyright
 Copyright 2014-2018 Biogen, Celgene Corporation, EMBL - European Bioinformatics Institute, GlaxoSmithKline, Takeda Pharmaceutical Company and Wellcome Sanger Institute
 
