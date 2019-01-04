@@ -71,7 +71,7 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
 
 object SimilarityIndex {
 
-  case class SimilarityIndexParams(bucketLen: Double = 10, minDF: Int = 2,
-                                   binaryMode: Boolean = false, threshold: Double = 2.0)
+  case class SimilarityIndexParams(bucketLen: Double = 3, minDF: Int = 2,
+                                   binaryMode: Boolean = false, threshold: Double = 2.5)
 
 }
