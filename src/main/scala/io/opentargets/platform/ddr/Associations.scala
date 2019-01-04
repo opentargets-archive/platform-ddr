@@ -67,7 +67,6 @@ object Associations extends LazyLogging {
 
   def parseFile(filename: String, directAssocs: Boolean, scoreThreshold: Double, evsThreshold: Long)(implicit ss: SparkSession): DataFrame = {
     val ff = ss.read
-      .option("badRecordsPath", "/tmp/badRecordsPath")
       //.schema(schema)
       .json(filename)
 
