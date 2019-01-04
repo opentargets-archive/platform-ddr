@@ -50,7 +50,7 @@ object Main extends LazyLogging {
         logger.debug("setting sparkcontext logging level to log-level")
         ss.sparkContext.setLogLevel(logLevel)
 
-        logger.warn(s"process file $fname")
+        logger.info(s"process file $fname")
         val assocsDF = Associations.parseFile(fname, config.direct, config.scoreThreshold, config.evsThreshold)
         assocsDF.printSchema
 

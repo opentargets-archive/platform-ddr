@@ -80,7 +80,7 @@ object Associations extends LazyLogging {
         column("evidence_count.total").as("count"))
       .persist
 
-    logger.warn(s"filtered associations count is ${filteredFF.count()}")
+    logger.info(s"filtered associations count is ${filteredFF.count()}")
 
     filteredFF
   }

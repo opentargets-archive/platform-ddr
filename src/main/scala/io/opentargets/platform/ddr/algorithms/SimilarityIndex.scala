@@ -9,11 +9,9 @@ import org.apache.spark.sql.DataFrame
 
 
 class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) extends LazyLogging {
-  // here the algo
   def run(groupBy: String, aggBy: Seq[String]): Option[(Seq[String], DataFrame)] = {
     aggregateDF(df, groupBy, aggBy).map(x => {
-      logger.warn(s"aggregated keys count is ${x._2.count()}")
-      x._2.show(false)
+      logger.info(s"aggregated keys count is ${x._2.count()}")
 
       val cv: CountVectorizer = new CountVectorizer()
         .setInputCol(aggBy.head + "_list")
@@ -46,11 +44,12 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
 
       val ttdf = brp_model.transform(tx)
 
-      val r = brp_model.approxSimilarityJoin(ttdf, ttdf, params.threshold).persist()
+      val r = brp_model.approxSimilarityJoin(ttdf, ttdf, params.threshold)
+        .where(column(s"datasetA.${groupBy}") =!= column(s"datasetB.${groupBy}"))
+        .persist()
 
-      logger.warn(s"approx similarity join count ${r.count()}")
+      logger.info(s"approx similarity join count ${r.count()}")
 
-      r.show(false)
       (x._1, r.toDF())
     })
   }
@@ -71,7 +70,7 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
 
 object SimilarityIndex {
 
-  case class SimilarityIndexParams(bucketLen: Double = 5, minDF: Int = 2,
+  case class SimilarityIndexParams(bucketLen: Double = 3, minDF: Int = 2,
                                    binaryMode: Boolean = false, threshold: Double = 2.5)
 
 }
