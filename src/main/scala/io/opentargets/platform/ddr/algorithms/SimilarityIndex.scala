@@ -40,7 +40,7 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
         .setOutputCol("hashes")
 
       val pipeline = new Pipeline()
-        .setStages(Array(cv, idf /*, assembler*/))
+        .setStages(Array(cv, idf, percentileDisct, assembler))
 
       val tx = pipeline.fit(x._2)
         .transform(x._2)
