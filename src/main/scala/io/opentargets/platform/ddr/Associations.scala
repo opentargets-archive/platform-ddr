@@ -1,12 +1,13 @@
 package io.opentargets.platform.ddr
 
+import com.typesafe.scalalogging.LazyLogging
 import io.opentargets.platform.ddr.algorithms.SimilarityIndex
 import io.opentargets.platform.ddr.algorithms.SimilarityIndex.SimilarityIndexParams
 import org.apache.spark.sql._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 
-object Associations {
+object Associations extends LazyLogging {
   val dataSources = List("uniprot", "slapenrich", "gene2phenotype", "uniprot_somatic", "uniprot_literature",
     "gwas_catalog", "reactome", "chembl", "intogen", "expression_atlas", "genomics_england", "phenodigm",
     "sysbio", "phewas_catalog", "eva_somatic", "progeny", "postgap", "eva", "cancer_gene_census", "europepmc")
@@ -70,7 +71,7 @@ object Associations {
       //.schema(schema)
       .json(filename)
 
-    ff.filter((column("is_direct") === directAssocs) and
+    val filteredFF = ff.filter((column("is_direct") === directAssocs) and
       (column("association_score.overall") geq scoreThreshold) and
       (column("evidence_count.total") geq evsThreshold))
       .select(column("target.id").as("target_id"), column("target.gene_info.symbol").as("target_symbol"),
@@ -78,18 +79,22 @@ object Associations {
         column("association_score.overall").as("score"),
         column("evidence_count.total").as("count"))
       .persist
+
+    logger.warn(s"filtered associations count is ${filteredFF.count()}")
+
+    filteredFF
   }
 
-  def computeSimilarTargets(df: DataFrame): Option[DataFrame] = {
+  def computeSimilarTargets(df: DataFrame): Option[(Seq[String], DataFrame)] = {
     val params = SimilarityIndexParams()
     val algo = new SimilarityIndex(df, params)
     algo.run(groupBy = "target_id", aggBy = Seq("disease_id", "disease_label", "score", "count"))
   }
 
-  def computeSimilarDiseases(df: DataFrame): Option[DataFrame] = {
+  def computeSimilarDiseases(df: DataFrame): Option[(Seq[String], DataFrame)] = {
     val params = SimilarityIndexParams()
     val algo = new SimilarityIndex(df, params)
-    algo.run(groupBy = "disease_id", aggBy = Seq("target_id", "score", "count"))
+    algo.run(groupBy = "disease_id", aggBy = Seq("target_id", "target_symbol", "score", "count"))
   }
 
   private[ddr] def schemaComposer(l: List[String], lType: DataType): StructType =

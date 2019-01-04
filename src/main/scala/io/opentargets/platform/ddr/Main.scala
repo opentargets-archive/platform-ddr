@@ -50,15 +50,15 @@ object Main extends LazyLogging {
         logger.debug("setting sparkcontext logging level to log-level")
         ss.sparkContext.setLogLevel(logLevel)
 
-        logger.info(s"process file $fname")
+        logger.warn(s"process file $fname")
         val assocsDF = Associations.parseFile(fname, config.direct, config.scoreThreshold, config.evsThreshold)
         assocsDF.printSchema
 
         val similarTargets = Associations.computeSimilarTargets(assocsDF)
         val similarDiseases = Associations.computeSimilarDiseases(assocsDF)
 
-        similarTargets.get.write.json(config.outputPath.get + "ddr_targets/")
-        similarDiseases.get.write.json(config.outputPath.get + "ddr_diseases/")
+        similarTargets.foreach(_._2.write.json(config.outputPath.get + "ddr_targets/"))
+        similarDiseases.foreach(_._2.write.json(config.outputPath.get + "ddr_diseases/"))
 
         ss.stop
 
