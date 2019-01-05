@@ -101,7 +101,7 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
   private[ddr] def sortScoredIDs(df: DataFrame, termColumn: String, idsColumn: String,
                                  scoresColumn: String, newColumn: String): DataFrame = {
     val transformer = udf((term: String, ids: Seq[String], scores: Seq[Double]) =>
-      term ++: (ids.view zip scores.view).sortBy(-_._2).map(_._1).force)
+      term +: (ids.view zip scores.view).sortBy(-_._2).map(_._1).force)
 
     df.withColumn(newColumn, transformer(column(termColumn), column(idsColumn), column(scoresColumn)))
   }
