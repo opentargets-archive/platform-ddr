@@ -14,9 +14,9 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
       val sx = scaleScoredIDs(x._2, x._1.head, x._1(2), x._1.head + "_scaled")
         .persist()
 
-      sx.show(100, truncate = false)
+      sx.show(truncate = false)
 
-      sx.where(column(groupBy) === "ENSG00000167207").show(100, truncate = false)
+      sx.where(column(groupBy) === "ENSG00000167207").show(5, truncate = false)
 
       logger.info(s"aggregated keys count is ${sx.count} with cNames ${sx.columns}")
 
@@ -29,14 +29,19 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
         .setInputCol("tf")
         .setOutputCol("tf_idf")
 
+      val w2v = new Word2Vec()
+        .setInputCol(x._1.head + "_scaled")
+        .setOutputCol("result")
+        .setMinCount(params.minWF)
+
       val brp = new BucketedRandomProjectionLSH()
         .setBucketLength(params.bucketLen)
         .setNumHashTables(params.numHashTables)
-        .setInputCol("tf_idf")
+        .setInputCol("result")
         .setOutputCol("hashes")
 
       val pipeline = new Pipeline()
-        .setStages(Array(tf, idf))
+        .setStages(Array(tf, idf, w2v))
 
       val tx = pipeline.fit(sx)
         .transform(sx)
@@ -49,8 +54,8 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
         .where(column(s"datasetA.$groupBy") =!= column(s"datasetB.$groupBy"))
         .persist()
 
-      r.show(100, truncate = false)
-      r.where(column(s"datasetA.$groupBy") === "ENSG00000167207").show(100, truncate = false)
+      r.show(truncate = false)
+      r.where(column(s"datasetA.$groupBy") === "ENSG00000167207").show(5, truncate = false)
 
       logger.info(s"approx similarity join count ${r.count}")
 
@@ -85,6 +90,7 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
 object SimilarityIndex {
 
   case class SimilarityIndexParams(bucketLen: Double = 2, numHashTables: Int = 10,
-                                   binaryMode: Boolean = false, maxDistance: Double = 10)
+                                   binaryMode: Boolean = false, maxDistance: Double = 10,
+                                   minWF: Int = 1)
 
 }
