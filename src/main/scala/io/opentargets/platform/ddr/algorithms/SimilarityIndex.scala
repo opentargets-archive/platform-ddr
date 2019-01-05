@@ -2,7 +2,6 @@ package io.opentargets.platform.ddr.algorithms
 
 import com.typesafe.scalalogging.LazyLogging
 import io.opentargets.platform.ddr.algorithms.SimilarityIndex.{SimilarityIndexModel, SimilarityIndexParams}
-import org.apache.spark.ml.Pipeline
 import org.apache.spark.ml.feature._
 import org.apache.spark.sql.functions.{collect_list, column, mean, udf}
 import org.apache.spark.sql.DataFrame
