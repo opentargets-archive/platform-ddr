@@ -12,50 +12,62 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
   def run(groupBy: String, aggBy: Seq[String]): Option[DataFrame] = {
     aggregateDF(df, groupBy, aggBy).map(x => {
       val sx = scaleScoredIDs(x._2, x._1.head, x._1(2), x._1.head + "_scaled")
+
+      val sxx = sortScoredIDs(sx, groupBy, x._1.head, x._1(2), x._1.head + "_sorted")
         .persist()
 
-      sx.show(truncate = false)
+      sxx.where(column(groupBy) === "ENSG00000167207").show(5, truncate = false)
+      logger.info(s"aggregated keys count is ${sxx.count} with cNames ${sxx.columns}")
 
-      sx.where(column(groupBy) === "ENSG00000167207").show(5, truncate = false)
-
-      logger.info(s"aggregated keys count is ${sx.count} with cNames ${sx.columns}")
-
-      val tf: HashingTF = new HashingTF()
-        .setInputCol(x._1.head + "_scaled")
-        .setOutputCol("tf")
-        .setBinary(params.binaryMode)
-
-      val idf = new IDF()
-        .setInputCol("tf")
-        .setOutputCol("tf_idf")
+      //      val cv: CountVectorizer = new CountVectorizer()
+      //        .setBinary(params.binaryMode)
+      //        .setMinDF(params.minDF)
+      //        .setMinTF(params.minWF)
+      //        .setInputCol(x._1.head + "_scaled")
+      //        .setOutputCol("cv")
+      //
+      //      val tf: HashingTF = new HashingTF()
+      //        .setInputCol(x._1.head + "_scaled")
+      //        .setOutputCol("tf")
+      //        .setBinary(params.binaryMode)
+      //
+      //      val idf = new IDF()
+      //        .setInputCol("tf")
+      //        .setOutputCol("tf_idf")
 
       val w2v = new Word2Vec()
-        .setInputCol(x._1.head + "_scaled")
-        .setOutputCol("result")
+        .setInputCol(x._1.head + "_sorted")
+        .setOutputCol("features")
         .setMinCount(params.minWF)
 
-      val brp = new BucketedRandomProjectionLSH()
-        .setBucketLength(params.bucketLen)
-        .setNumHashTables(params.numHashTables)
-        .setInputCol("result")
-        .setOutputCol("hashes")
+      //      val brp = new BucketedRandomProjectionLSH()
+      //        .setBucketLength(params.bucketLen)
+      //        .setNumHashTables(params.numHashTables)
+      //        .setInputCol("result")
+      //        .setOutputCol("hashes")
+      //
+      //      val pipeline = new Pipeline()
+      //        .setStages(Array(cv, tf, idf, w2v))
+      //
+      //      val tx = pipeline.fit(sxx)
+      //        .transform(sxx)
+      //
+      //      val brp_model = brp.fit(tx)
+      //
+      //      val ttdf = brp_model.transform(tx)
+      //
+      //      val r = brp_model.approxSimilarityJoin(ttdf, ttdf, params.maxDistance)
+      //        .where(column(s"datasetA.$groupBy") =!= column(s"datasetB.$groupBy"))
+      //        .persist()
 
-      val pipeline = new Pipeline()
-        .setStages(Array(tf, idf, w2v))
+      val w2vModel = w2v.fit(sxx)
+      val r = w2vModel.transform(sxx).persist()
 
-      val tx = pipeline.fit(sx)
-        .transform(sx)
+      w2vModel.findSynonyms("ENSG00000167207", 10).show(10, truncate = false)
 
-      val brp_model = brp.fit(tx)
-
-      val ttdf = brp_model.transform(tx)
-
-      val r = brp_model.approxSimilarityJoin(ttdf, ttdf, params.maxDistance)
-        .where(column(s"datasetA.$groupBy") =!= column(s"datasetB.$groupBy"))
-        .persist()
-
-      r.show(truncate = false)
-      r.where(column(s"datasetA.$groupBy") === "ENSG00000167207").show(5, truncate = false)
+      // TODO broadcast the model
+      // r.withColumn("synonyms", )
+      // w2vModel.getVectors.show(10, truncate = false)
 
       logger.info(s"approx similarity join count ${r.count}")
 
@@ -85,12 +97,20 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
 
     df.withColumn(newColumn, transformer(column(idsColumn), column(scoresColumn)))
   }
+
+  private[ddr] def sortScoredIDs(df: DataFrame, termColumn: String, idsColumn: String,
+                                 scoresColumn: String, newColumn: String): DataFrame = {
+    val transformer = udf((term: String, ids: Seq[String], scores: Seq[Double]) =>
+      term ++: (ids.view zip scores.view).sortBy(-_._2).map(_._1).force)
+
+    df.withColumn(newColumn, transformer(column(termColumn), column(idsColumn), column(scoresColumn)))
+  }
 }
 
 object SimilarityIndex {
 
   case class SimilarityIndexParams(bucketLen: Double = 2, numHashTables: Int = 10,
                                    binaryMode: Boolean = false, maxDistance: Double = 10,
-                                   minWF: Int = 1)
+                                   minWF: Int = 1, minDF: Int = 1)
 
 }
