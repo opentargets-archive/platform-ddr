@@ -16,6 +16,8 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
 
       sx.show(100, truncate = false)
 
+      sx.where(column(groupBy) === "ENSG00000167207").show(100, truncate = false)
+
       logger.info(s"aggregated keys count is ${sx.count} with cNames ${sx.columns}")
 
       val tf: HashingTF = new HashingTF()
@@ -48,6 +50,8 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
         .persist()
 
       r.show(100, truncate = false)
+      r.where(column(s"datasetA.$groupBy") === "ENSG00000167207").show(100, truncate = false)
+
       logger.info(s"approx similarity join count ${r.count}")
 
       r.toDF()
@@ -70,7 +74,9 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
   private[ddr] def scaleScoredIDs(df: DataFrame, idsColumn: String,
                                   scoresColumn: String, newColumn: String): DataFrame = {
     val transformer = udf((ids: Seq[String], scores: Seq[Double]) =>
-      (ids.view zip scores.view.map(x => math.round(x * 10).toInt)).flatMap(pair => pair._1 * pair._2).force)
+      (ids.view zip scores.map(x => math.round(x * 10).toInt).view).flatMap(pair => {
+        Seq.fill(pair._2)(pair._1)
+      }).force)
 
     df.withColumn(newColumn, transformer(column(idsColumn), column(scoresColumn)))
   }
@@ -79,6 +85,6 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
 object SimilarityIndex {
 
   case class SimilarityIndexParams(bucketLen: Double = 2, numHashTables: Int = 10,
-                                   binaryMode: Boolean = true, maxDistance: Double = 10)
+                                   binaryMode: Boolean = false, maxDistance: Double = 10)
 
 }
