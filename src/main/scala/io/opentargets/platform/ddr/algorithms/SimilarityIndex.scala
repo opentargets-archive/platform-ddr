@@ -9,14 +9,19 @@ import org.apache.spark.sql.DataFrame
 
 
 class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) extends LazyLogging {
-  def run(groupBy: String, aggBy: Seq[String]): Option[(Seq[String], DataFrame)] = {
+  def run(groupBy: String, aggBy: Seq[String]): Option[DataFrame] = {
     aggregateDF(df, groupBy, aggBy).map(x => {
       logger.info(s"aggregated keys count is ${x._2.count()}")
 
-      val cv: CountVectorizer = new CountVectorizer()
-        .setInputCol(aggBy.head + "_list")
+//      val tf: CountVectorizer = new CountVectorizer()
+//        .setInputCol(x._1.head)
+//        .setOutputCol("tf")
+//        .setMinDF(params.minDF)
+//        .setBinary(params.binaryMode)
+
+      val tf: HashingTF = new HashingTF()
+        .setInputCol(x._1.head)
         .setOutputCol("tf")
-        .setMinDF(params.minDF)
         .setBinary(params.binaryMode)
 
       val idf = new IDF()
@@ -35,12 +40,12 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
 
       val brp = new BucketedRandomProjectionLSH()
         .setBucketLength(params.bucketLen)
-        // .setNumHashTables(3)
+        .setNumHashTables(10)
         .setInputCol("features")
         .setOutputCol("hashes")
 
       val pipeline = new Pipeline()
-        .setStages(Array(cv, idf, percentileDisct, assembler))
+        .setStages(Array(tf, idf, percentileDisct, assembler))
 
       val tx = pipeline.fit(x._2)
         .transform(x._2)
@@ -50,12 +55,12 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
       val ttdf = brp_model.transform(tx)
 
       val r = brp_model.approxSimilarityJoin(ttdf, ttdf, params.threshold)
-        .where(column(s"datasetA.${groupBy}") =!= column(s"datasetB.${groupBy}"))
+        .where(column(s"datasetA.$groupBy") =!= column(s"datasetB.$groupBy"))
         .persist()
 
       logger.info(s"approx similarity join count ${r.count()}")
 
-      (x._1, r.toDF())
+      r.toDF()
     })
   }
 
@@ -75,8 +80,8 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
 
 object SimilarityIndex {
 
-  case class SimilarityIndexParams(bucketLen: Double = 3, minDF: Int = 2,
-                                   binaryMode: Boolean = false, threshold: Double = 2.5,
+  case class SimilarityIndexParams(bucketLen: Double = 2, minDF: Int = 1,
+                                   binaryMode: Boolean = false, threshold: Double = 10,
                                    numPercentiles: Int = 10)
 
 }

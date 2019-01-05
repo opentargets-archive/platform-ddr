@@ -84,13 +84,13 @@ object Associations extends LazyLogging {
     filteredFF
   }
 
-  def computeSimilarTargets(df: DataFrame): Option[(Seq[String], DataFrame)] = {
+  def computeSimilarTargets(df: DataFrame): Option[DataFrame] = {
     val params = SimilarityIndexParams()
     val algo = new SimilarityIndex(df, params)
     algo.run(groupBy = "target_id", aggBy = Seq("disease_id", "disease_label", "score", "count"))
   }
 
-  def computeSimilarDiseases(df: DataFrame): Option[(Seq[String], DataFrame)] = {
+  def computeSimilarDiseases(df: DataFrame): Option[DataFrame] = {
     val params = SimilarityIndexParams()
     val algo = new SimilarityIndex(df, params)
     algo.run(groupBy = "disease_id", aggBy = Seq("target_id", "target_symbol", "score", "count"))
