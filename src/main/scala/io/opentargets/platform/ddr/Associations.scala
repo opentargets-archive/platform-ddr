@@ -87,13 +87,23 @@ object Associations extends LazyLogging {
   def computeSimilarTargets(df: DataFrame): Option[DataFrame] = {
     val params = SimilarityIndexParams()
     val algo = new SimilarityIndex(df, params)
-    algo.run(groupBy = "target_id", aggBy = Seq("disease_id", "disease_label", "score", "count"))
+    val sim = algo.run(groupBy = "target_id", aggBy = Seq("disease_id", "disease_label", "score", "count"))
+
+    sim.map(x => {
+      // try to find synonyms to duchenne and becker
+      x.model.findSynonyms("Orphanet_262", 20)
+    })
   }
 
   def computeSimilarDiseases(df: DataFrame): Option[DataFrame] = {
     val params = SimilarityIndexParams()
     val algo = new SimilarityIndex(df, params)
-    algo.run(groupBy = "disease_id", aggBy = Seq("target_id", "target_symbol", "score", "count"))
+    val sim = algo.run(groupBy = "disease_id", aggBy = Seq("target_id", "target_symbol", "score", "count"))
+
+    sim.map(x => {
+      // try to find synonyms to duchenne and becker
+      x.model.findSynonyms("ENSG00000120907", 20)
+    })
   }
 
   private[ddr] def schemaComposer(l: List[String], lType: DataType): StructType =
