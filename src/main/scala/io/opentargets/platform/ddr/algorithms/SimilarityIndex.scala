@@ -4,23 +4,22 @@ import com.typesafe.scalalogging.LazyLogging
 import io.opentargets.platform.ddr.algorithms.SimilarityIndex.SimilarityIndexParams
 import org.apache.spark.ml.Pipeline
 import org.apache.spark.ml.feature._
-import org.apache.spark.sql.functions.{collect_list, column, mean}
+import org.apache.spark.sql.functions.{collect_list, column, mean, udf}
 import org.apache.spark.sql.DataFrame
 
 
 class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) extends LazyLogging {
   def run(groupBy: String, aggBy: Seq[String]): Option[DataFrame] = {
     aggregateDF(df, groupBy, aggBy).map(x => {
-      logger.info(s"aggregated keys count is ${x._2.count()}")
+      val sx = scaleScoredIDs(x._2, x._1.head, x._1(2), x._1.head + "_scaled")
+        .persist()
 
-//      val tf: CountVectorizer = new CountVectorizer()
-//        .setInputCol(x._1.head)
-//        .setOutputCol("tf")
-//        .setMinDF(params.minDF)
-//        .setBinary(params.binaryMode)
+      sx.show(100, truncate = false)
+
+      logger.info(s"aggregated keys count is ${sx.count} with cNames ${sx.columns}")
 
       val tf: HashingTF = new HashingTF()
-        .setInputCol(x._1.head)
+        .setInputCol(x._1.head + "_scaled")
         .setOutputCol("tf")
         .setBinary(params.binaryMode)
 
@@ -28,37 +27,28 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
         .setInputCol("tf")
         .setOutputCol("tf_idf")
 
-      val percentileDisct = new QuantileDiscretizer()
-        .setInputCol("mean_count")
-        .setOutputCol("q_count")
-        .setNumBuckets(params.numPercentiles)
-
-      // Seq("disease_id", "disease_label", "score", "count", "mean_score", "mean_count")
-      val assembler = new VectorAssembler()
-        .setInputCols(Array("tf_idf", /*"mean_score",*/ "q_count"))
-        .setOutputCol("features")
-
       val brp = new BucketedRandomProjectionLSH()
         .setBucketLength(params.bucketLen)
-        .setNumHashTables(10)
-        .setInputCol("features")
+        .setNumHashTables(params.numHashTables)
+        .setInputCol("tf_idf")
         .setOutputCol("hashes")
 
       val pipeline = new Pipeline()
-        .setStages(Array(tf, idf, percentileDisct, assembler))
+        .setStages(Array(tf, idf))
 
-      val tx = pipeline.fit(x._2)
-        .transform(x._2)
+      val tx = pipeline.fit(sx)
+        .transform(sx)
 
       val brp_model = brp.fit(tx)
 
       val ttdf = brp_model.transform(tx)
 
-      val r = brp_model.approxSimilarityJoin(ttdf, ttdf, params.threshold)
+      val r = brp_model.approxSimilarityJoin(ttdf, ttdf, params.maxDistance)
         .where(column(s"datasetA.$groupBy") =!= column(s"datasetB.$groupBy"))
         .persist()
 
-      logger.info(s"approx similarity join count ${r.count()}")
+      r.show(100, truncate = false)
+      logger.info(s"approx similarity join count ${r.count}")
 
       r.toDF()
     })
@@ -72,16 +62,23 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
         Seq(mean(aggBy(2)).as("mean_score"), mean(aggBy(3)).as("mean_count"))
 
       val filteredDF = df.groupBy(column(groupBy))
-        .agg(aggL.head, aggL.tail: _*).persist()
+        .agg(aggL.head, aggL.tail: _*)
       Some((colNames, filteredDF))
     } else None
+  }
+
+  private[ddr] def scaleScoredIDs(df: DataFrame, idsColumn: String,
+                                  scoresColumn: String, newColumn: String): DataFrame = {
+    val transformer = udf((ids: Seq[String], scores: Seq[Double]) =>
+      (ids.view zip scores.view.map(x => math.round(x * 10).toInt)).flatMap(pair => pair._1 * pair._2).force)
+
+    df.withColumn(newColumn, transformer(column(idsColumn), column(scoresColumn)))
   }
 }
 
 object SimilarityIndex {
 
-  case class SimilarityIndexParams(bucketLen: Double = 2, minDF: Int = 1,
-                                   binaryMode: Boolean = false, threshold: Double = 10,
-                                   numPercentiles: Int = 10)
+  case class SimilarityIndexParams(bucketLen: Double = 2, numHashTables: Int = 10,
+                                   binaryMode: Boolean = true, maxDistance: Double = 10)
 
 }
