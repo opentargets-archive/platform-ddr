@@ -6,7 +6,7 @@ import io.opentargets.platform.ddr.algorithms.SimilarityIndex
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 
-object Relations extends LazyLogging{
+object Relations extends LazyLogging {
   def apply(df: DataFrame, numSynonyms: Int)(implicit ss: SparkSession): Option[DataFrame] = {
     val params = SimilarityIndexParams()
     val algo = new SimilarityIndex(params)
@@ -21,8 +21,10 @@ object Relations extends LazyLogging{
     val tsyns = targetsModel.map(_.findSynonyms(numSynonyms)(df, "target_id", "target_synonyms"))
 
     val dfs = List(dsyns, tsyns).filter(_.isDefined).map(_.get)
+    logger.debug(s"computed synonym dataframes count ${dfs.length}")
 
-    // TODO iter all dataframes and generate the structure needed for relations
-    None
+    if (dfs.nonEmpty) {
+      Some(dfs.reduce(_ union _))
+    } else None
   }
 }

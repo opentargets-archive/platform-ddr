@@ -77,13 +77,9 @@ object Associations extends LazyLogging {
         column("evidence_count.total").as("count"))
       .persist
 
-    logger.info(s"filtered associations count is ${filteredFF.count()}")
+    logger.debug(s"filtered associations count is ${filteredFF.count()}")
 
     filteredFF
-  }
-
-  def computeRelations(df: DataFrame, numSynonyms: Int)(implicit ss: SparkSession): Option[DataFrame] = {
-    Relations(df, numSynonyms)
   }
 
   private[ddr] def schemaComposer(l: List[String], lType: DataType): StructType =

@@ -3,7 +3,7 @@ package io.opentargets.platform.ddr.algorithms
 import com.typesafe.scalalogging.LazyLogging
 import io.opentargets.platform.ddr.algorithms.SimilarityIndex.{SimilarityIndexModel, SimilarityIndexParams}
 import org.apache.spark.ml.feature._
-import org.apache.spark.sql.functions.{collect_list, column, mean, udf}
+import org.apache.spark.sql.functions.{collect_list, column, mean, udf, struct}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 
@@ -13,7 +13,7 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
       val sxx = sortScoredIDs(x._2, x._1.head, x._1(2), x._1.head + "_sorted")
         .persist()
 
-      logger.info(s"aggregated keys count is ${sxx.count} with cNames ${sxx.columns}")
+      logger.debug(s"aggregated keys count is ${sxx.count} with cNames ${sxx.columns}")
 
       val w2v = new Word2Vec()
         .setInputCol(x._1.head + "_sorted")
@@ -26,9 +26,9 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
 
       val countWordIDs = w2vModel.getVectors.count
 
-      logger.info(s"words count $countWordIDs")
+      logger.info(s"model ${w2vModel.uid} words count $countWordIDs")
 
-      new SimilarityIndexModel(w2vModel)
+      SimilarityIndexModel(w2vModel)
     })
   }
 
@@ -55,20 +55,25 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
 }
 
 object SimilarityIndex {
+
   case class SimilarityIndexParams(windowSize: Int = 5, minWordFreq: Int = 1)
 
-  case class SimilarityIndexModel(model: Word2VecModel) {
+  case class SimilarityIndexModel(model: Word2VecModel) extends LazyLogging {
+    logger.debug(s"created model ${model.uid}")
+
     def findSynonyms(n: Int)
                     (df: DataFrame, inColName: String, outColName: String)
                     (implicit ss: SparkSession): DataFrame = {
+      logger.debug(s"broadcast model ${model.uid}")
       val modelBc = ss.sparkContext.broadcast(model)
 
       val synUDF = udf((word: String) => {
         val m = modelBc.value
-        m.findSynonyms(word, n).collectAsList()
+        m.findSynonyms(word, n).rdd.map(r => (r.getAs[String](0), r.getAs[Double](1))).collect()
       })
 
       df.withColumn(outColName, synUDF(column(inColName)))
     }
   }
+
 }

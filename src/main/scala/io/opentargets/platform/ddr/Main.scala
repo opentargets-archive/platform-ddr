@@ -4,7 +4,6 @@ import com.typesafe.scalalogging.LazyLogging
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
 import scopt.OptionParser
-// import org.apache.spark.sql.functions._
 
 
 case class CommandLineArgs(inputFile: Option[String] = None,
@@ -54,8 +53,10 @@ object Main extends LazyLogging {
         val assocsDF = Associations.parseFile(fname, config.direct, config.scoreThreshold, config.evsThreshold)
         assocsDF.printSchema
 
-        Associations.computeRelations(assocsDF, 20)
-          .foreach(_.write.json(config.outputPath.get))
+        Relations(assocsDF, 20).foreach(synDF => {
+          logger.info(s"save dataframe to ${config.outputPath.get}")
+          synDF.write.json(config.outputPath.get)
+        })
 
         ss.stop
 
