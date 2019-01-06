@@ -55,10 +55,10 @@ object Main extends LazyLogging {
         assocsDF.printSchema
 
         val similarTargets = Associations.computeSimilarTargets(assocsDF)
-        // val similarDiseases = Associations.computeSimilarDiseases(assocsDF)
+        val similarDiseases = Associations.computeSimilarDiseases(assocsDF)
 
         similarTargets.foreach(_.write.json(config.outputPath.get + "ddr_targets/"))
-        // similarDiseases.foreach(_.write.json(config.outputPath.get + "ddr_diseases/"))
+        similarDiseases.foreach(_.write.json(config.outputPath.get + "ddr_diseases/"))
 
         ss.stop
 
