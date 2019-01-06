@@ -18,7 +18,8 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
       val w2v = new Word2Vec()
         .setInputCol(x._1.head + "_sorted")
         .setOutputCol("features")
-        .setMinCount(params.minWF)
+        .setMinCount(params.minWordFreq)
+        .setWindowSize(params.windowSize)
 
       val w2vModel = w2v.fit(sxx)
       val r = w2vModel.transform(sxx).persist()
@@ -65,9 +66,7 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
 
 object SimilarityIndex {
 
-  case class SimilarityIndexParams(bucketLen: Double = 2, numHashTables: Int = 10,
-                                   binaryMode: Boolean = false, maxDistance: Double = 10,
-                                   minWF: Int = 1, minDF: Int = 1)
+  case class SimilarityIndexParams(windowSize: Int = 5, minWordFreq: Int = 1)
 
   case class SimilarityIndexModel(model: Word2VecModel, transformedDF: DataFrame)
 }
