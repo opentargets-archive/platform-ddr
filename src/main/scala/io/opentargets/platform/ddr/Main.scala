@@ -54,11 +54,8 @@ object Main extends LazyLogging {
         val assocsDF = Associations.parseFile(fname, config.direct, config.scoreThreshold, config.evsThreshold)
         assocsDF.printSchema
 
-        val similarTargets = Associations.computeSimilarTargets(assocsDF)
-        val similarDiseases = Associations.computeSimilarDiseases(assocsDF)
-
-        similarTargets.foreach(_.write.json(config.outputPath.get + "ddr_targets/"))
-        similarDiseases.foreach(_.write.json(config.outputPath.get + "ddr_diseases/"))
+        Associations.computeRelations(assocsDF, 20)
+          .foreach(_.write.json(config.outputPath.get))
 
         ss.stop
 

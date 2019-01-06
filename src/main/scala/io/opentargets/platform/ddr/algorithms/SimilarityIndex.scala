@@ -4,11 +4,11 @@ import com.typesafe.scalalogging.LazyLogging
 import io.opentargets.platform.ddr.algorithms.SimilarityIndex.{SimilarityIndexModel, SimilarityIndexParams}
 import org.apache.spark.ml.feature._
 import org.apache.spark.sql.functions.{collect_list, column, mean, udf}
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.{DataFrame, SparkSession}
 
 
-class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) extends LazyLogging {
-  def run(groupBy: String, aggBy: Seq[String]): Option[SimilarityIndexModel] = {
+class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
+  def fit(df: DataFrame, groupBy: String, aggBy: Seq[String]): Option[SimilarityIndexModel] = {
     aggregateDF(df, groupBy, aggBy).map(x => {
       val sxx = sortScoredIDs(x._2, x._1.head, x._1(2), x._1.head + "_sorted")
         .persist()
@@ -22,13 +22,13 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
         .setWindowSize(params.windowSize)
 
       val w2vModel = w2v.fit(sxx)
-      val r = w2vModel.transform(sxx).persist()
+      // val r = w2vModel.transform(sxx).persist()
 
       val countWordIDs = w2vModel.getVectors.count
 
       logger.info(s"words count $countWordIDs")
 
-      SimilarityIndexModel(w2vModel, r.toDF())
+      new SimilarityIndexModel(w2vModel)
     })
   }
 
@@ -45,16 +45,6 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
     } else None
   }
 
-  private[ddr] def scaleScoredIDs(df: DataFrame, idsColumn: String,
-                                  scoresColumn: String, newColumn: String): DataFrame = {
-    val transformer = udf((ids: Seq[String], scores: Seq[Double]) =>
-      (ids.view zip scores.map(x => math.round(x * 10).toInt).view).flatMap(pair => {
-        Seq.fill(pair._2)(pair._1)
-      }).force)
-
-    df.withColumn(newColumn, transformer(column(idsColumn), column(scoresColumn)))
-  }
-
   private[ddr] def sortScoredIDs(df: DataFrame, idsColumn: String,
                                  scoresColumn: String, newColumn: String): DataFrame = {
     val transformer = udf((ids: Seq[String], scores: Seq[Double]) =>
@@ -65,8 +55,20 @@ class SimilarityIndex(val df: DataFrame, val params: SimilarityIndexParams) exte
 }
 
 object SimilarityIndex {
-
   case class SimilarityIndexParams(windowSize: Int = 5, minWordFreq: Int = 1)
 
-  case class SimilarityIndexModel(model: Word2VecModel, transformedDF: DataFrame)
+  case class SimilarityIndexModel(model: Word2VecModel) {
+    def findSynonyms(n: Int)
+                    (df: DataFrame, inColName: String, outColName: String)
+                    (implicit ss: SparkSession): DataFrame = {
+      val modelBc = ss.sparkContext.broadcast(model)
+
+      val synUDF = udf((word: String) => {
+        val m = modelBc.value
+        m.findSynonyms(word, n).collectAsList()
+      })
+
+      df.withColumn(outColName, synUDF(column(inColName)))
+    }
+  }
 }
