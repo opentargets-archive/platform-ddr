@@ -67,10 +67,7 @@ object SimilarityIndex {
       logger.debug(s"broadcast model ${model.uid}")
       val modelBc = ss.sparkContext.broadcast(model)
 
-      val synUDF = udf((word: String) => {
-        val m = modelBc.value
-        m.findSynonyms(word, n).rdd.map(r => (r.getAs[String](0), r.getAs[Double](1))).collect()
-      })
+      val synUDF = udf((word: String) => modelBc.value.findSynonymsArray(word, n))
 
       df.withColumn(outColName, synUDF(column(inColName)))
     }

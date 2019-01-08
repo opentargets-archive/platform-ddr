@@ -24,6 +24,18 @@ java -Xms4096M -Xmx4096M -Xss10M -jar <fat.jar> \
     --kwargs log-level=WARN
 ```
 
+### Generate the input file from ES5
+
+```sh
+elasticdump \
+    --input=http://localhost:9200/18.12_association-data \
+    --output=18.12_association-data.json \
+    --type=data \
+    --limit=20000 \
+    --sourceOnly \
+    --searchBody '{"query": { "match_all": {} }, "_source": {"excludes": ["private.*", ".private.*"]}}'
+```
+
 # Copyright
 Copyright 2014-2018 Biogen, Celgene Corporation, EMBL - European Bioinformatics Institute, GlaxoSmithKline, Takeda Pharmaceutical Company and Wellcome Sanger Institute
 

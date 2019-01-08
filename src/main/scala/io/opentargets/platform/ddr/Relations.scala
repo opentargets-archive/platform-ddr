@@ -4,6 +4,7 @@ import com.typesafe.scalalogging.LazyLogging
 import io.opentargets.platform.ddr.algorithms.SimilarityIndex._
 import io.opentargets.platform.ddr.algorithms.SimilarityIndex
 import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.functions._
 
 object Relations extends LazyLogging {
   def apply(df: DataFrame, numSynonyms: Int)(
@@ -21,8 +22,8 @@ object Relations extends LazyLogging {
         groupBy = "disease_id",
         aggBy = Seq("target_id", "target_symbol", "score", "count"))
 
-    val targetsDF = df.select("target_id").distinct().toDF("target_id")
-    val diseasesDF = df.select("disease_id").distinct().toDF("disease_id")
+    val targetsDF = df.groupBy("target_id").agg(first("target_symbol").as("target_symbol")).repartition(64).persist()
+    val diseasesDF = df.groupBy("disease_id").agg(first("disease_label").as("disease_label")).repartition(64).persist()
 
     val dsyns = diseasesModel.map(
       _.findSynonyms(numSynonyms)(diseasesDF, "disease_id", "disease_synonyms"))
