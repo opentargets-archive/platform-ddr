@@ -17,6 +17,14 @@ object Associations extends LazyLogging {
     StructField("datasources", schemaComposer(dataSources, LongType)) ::
     StructField("datatypes", schemaComposer(dataTypes, LongType)) :: Nil)
 
+  val schemaAssociationMax = StructType(StructField("overall", DoubleType) ::
+    StructField("datasources", schemaComposer(dataSources, DoubleType)) ::
+    StructField("datatypes", schemaComposer(dataTypes, DoubleType)) :: Nil)
+
+  val schemaAssociationSum = StructType(StructField("overall", DoubleType) ::
+    StructField("datasources", schemaComposer(dataSources, DoubleType)) ::
+    StructField("datatypes", schemaComposer(dataTypes, DoubleType)) :: Nil)
+
   val schemaAssociationScore = StructType(StructField("overall", DoubleType) ::
     StructField("datasources", schemaComposer(dataSources, DoubleType)) ::
     StructField("datatypes", schemaComposer(dataTypes, DoubleType)) :: Nil)
@@ -61,7 +69,9 @@ object Associations extends LazyLogging {
       StructField("evidence_count", schemaEvidenceCount) ::
       StructField("target", schemaTarget) ::
       StructField("disease", schemaDisease) ::
-      StructField("association_score", schemaAssociationScore) :: Nil)
+      StructField("harmonic-sum", schemaAssociationScore) ::
+      StructField("sum", schemaAssociationSum) ::
+      StructField("max", schemaAssociationMax) :: Nil)
 
   def parseFile(filename: String, directAssocs: Boolean, scoreThreshold: Double, evsThreshold: Long)(implicit ss: SparkSession): DataFrame = {
     val ff = ss.read
@@ -69,11 +79,11 @@ object Associations extends LazyLogging {
       .json(filename)
 
     val filteredFF = ff.filter((column("is_direct") === directAssocs) and
-      (column("association_score.overall") geq scoreThreshold) and
+      (column("harmonic-sum.overall") geq scoreThreshold) and
       (column("evidence_count.total") geq evsThreshold))
       .select(column("target.id").as("target_id"), column("target.gene_info.symbol").as("target_symbol"),
         column("disease.id").as("disease_id"), column("disease.efo_info.label").as("disease_label"),
-        column("association_score.overall").as("score"),
+        column("harmonic-sum.overall").as("score"),
         column("evidence_count.total").as("count"))
       .persist
 
