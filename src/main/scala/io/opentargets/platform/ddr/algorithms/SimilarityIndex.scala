@@ -42,7 +42,7 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
         x._1.head, "scaled_scores", x._1.head + "_sorted")
         .persist()
 
-      // sortedDF.show(10, truncate = false)
+      sortedDF.show(10, truncate = false)
 
       val w2v = new Word2Vec()
         .setInputCol(x._1.head + "_sorted")
