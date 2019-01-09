@@ -10,16 +10,15 @@ object Relations extends LazyLogging {
   def apply(df: DataFrame, numSynonyms: Int)(
     implicit ss: SparkSession): Option[DataFrame] = {
     val params = SimilarityIndexParams()
-    val algoD = new SimilarityIndex(params)
-    val algoT = new SimilarityIndex(params)
+    val algo = new SimilarityIndex(params)
 
     val diseasesModel =
-      algoD.fit(df,
+      algo.fit(df,
         groupBy = "target_id",
         aggBy = Seq("disease_id", "disease_label", "score", "count"))
 
     val targetsModel =
-      algoT.fit(df,
+      algo.fit(df,
         groupBy = "disease_id",
         aggBy = Seq("target_id", "target_symbol", "score", "count"))
 

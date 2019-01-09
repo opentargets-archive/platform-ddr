@@ -60,11 +60,9 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
   }
 
   private[ddr] def aggregateDF(df: DataFrame, groupBy: String, aggBy: Seq[String]): Option[(Seq[String], DataFrame)] = {
-    // TODO it is not well coded the way I use seqs assuming specific lengths
     if (aggBy.nonEmpty) {
-      val colNames = aggBy.map(_ + "_list") ++ Seq("mean_score", "mean_count")
-      val aggL = (aggBy zip colNames).take(aggBy.size).map(elem => collect_list(elem._1).as(elem._2)) ++
-        Seq(mean(aggBy(2)).as("mean_score"), mean(aggBy(3)).as("mean_count"))
+      val colNames = aggBy.map(_ + "_list")
+      val aggL = (aggBy zip colNames).map(elem => collect_list(elem._1).as(elem._2))
 
       val filteredDF = df.groupBy(column(groupBy))
         .agg(aggL.head, aggL.tail: _*)
@@ -74,7 +72,7 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
 
   private[ddr] def scaleScoresByIDF(df: DataFrame, scores: String, idfScores: String, newColumn: String): DataFrame = {
     val transformer = udf((scores: Seq[Double], idfs: SparseVector) =>
-      (scores zip idfs.toArray).map(p => p._1 * p._2))
+      (scores.view zip idfs.values.view).map(p => p._1 * p._2).force)
 
     df.withColumn(newColumn, transformer(column(scores), column(idfScores)))
   }

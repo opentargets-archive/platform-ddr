@@ -51,11 +51,11 @@ object Main extends LazyLogging {
 
         logger.info(s"process file $fname")
         val assocsDF = Associations.parseFile(fname, config.direct, config.scoreThreshold, config.evsThreshold)
-        assocsDF.printSchema
+        assocsDF.persist()
 
-        Relations(assocsDF, 20).foreach(synDF => {
+        Relations(assocsDF, 20).foreach(similaritiesDF => {
           logger.info(s"save dataframe to ${config.outputPath.get}")
-          synDF.write.json(config.outputPath.get)
+          similaritiesDF.write.json(config.outputPath.get)
         })
 
         ss.stop
