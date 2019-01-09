@@ -3,17 +3,44 @@ package io.opentargets.platform.ddr.algorithms
 import com.typesafe.scalalogging.LazyLogging
 import io.opentargets.platform.ddr.algorithms.SimilarityIndex.{SimilarityIndexModel, SimilarityIndexParams}
 import org.apache.spark.ml.feature._
-import org.apache.spark.sql.functions.{collect_list, column, mean, udf, struct}
+import org.apache.spark.sql.functions.{collect_list, column, mean, udf}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 
 class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
   def fit(df: DataFrame, groupBy: String, aggBy: Seq[String]): Option[SimilarityIndexModel] = {
     aggregateDF(df, groupBy, aggBy).map(x => {
-      val sxx = sortScoredIDs(x._2, x._1.head, x._1(2), x._1.head + "_sorted")
+      val persistedDF = x._2.persist()
+
+      logger.debug(s"aggregated keys count is ${persistedDF.count} with cNames ${persistedDF.columns}")
+
+      // compute frequency of words
+      val cvModel: CountVectorizerModel = new CountVectorizer()
+        .setInputCol(x._1.head)
+        .setOutputCol("cv")
+        .setMinDF(params.minDocFreq)
+        .fit(persistedDF)
+
+      // transform the DF using the already computed frequency model
+      val sxxCV = cvModel
+        .transform(persistedDF)
         .persist()
 
-      logger.debug(s"aggregated keys count is ${sxx.count} with cNames ${sxx.columns}")
+      // compute IDF model from the word frequency transformed DF
+      val idfModel = new IDF()
+        .setMinDocFreq(params.minDocFreq)
+        .setInputCol("cv")
+        .setOutputCol("idf")
+        .fit(sxxCV)
+
+      // transform the dataframe and obtain the IDF scores per word in each row
+      val sxxCVIDF = idfModel.transform(sxxCV)
+
+      val sortedDF = sortScoredIDs(scaleScoresByIDF(sxxCVIDF, x._1(2), "idf", "scaled_scores"),
+        x._1.head, "scaled_scores", x._1.head + "_sorted")
+        .persist()
+
+      sortedDF.show(10, truncate = false)
 
       val w2v = new Word2Vec()
         .setInputCol(x._1.head + "_sorted")
@@ -21,11 +48,9 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
         .setMinCount(params.minWordFreq)
         .setWindowSize(params.windowSize)
 
-      val w2vModel = w2v.fit(sxx)
-      // val r = w2vModel.transform(sxx).persist()
+      val w2vModel = w2v.fit(sortedDF)
 
       val countWordIDs = w2vModel.getVectors.count
-
       logger.info(s"model ${w2vModel.uid} words count $countWordIDs")
 
       SimilarityIndexModel(w2vModel)
@@ -45,6 +70,13 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
     } else None
   }
 
+  private[ddr] def scaleScoresByIDF(df: DataFrame, scores: String, idfScores: String, newColumn: String): DataFrame = {
+    val transformer = udf((scores: Seq[Double], idfs: (Long, Seq[Long], Seq[Double])) =>
+      (scores.view zip idfs._3.view).map(p => p._1 * p._2).force)
+
+    df.withColumn(newColumn, transformer(column(scores), column(idfScores)))
+  }
+
   private[ddr] def sortScoredIDs(df: DataFrame, idsColumn: String,
                                  scoresColumn: String, newColumn: String): DataFrame = {
     val transformer = udf((ids: Seq[String], scores: Seq[Double]) =>
@@ -56,7 +88,7 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
 
 object SimilarityIndex {
 
-  case class SimilarityIndexParams(windowSize: Int = 5, minWordFreq: Int = 1)
+  case class SimilarityIndexParams(windowSize: Int = 5, minWordFreq: Int = 1, minDocFreq: Int = 1)
 
   case class SimilarityIndexModel(model: Word2VecModel) extends LazyLogging {
     logger.debug(s"created model ${model.uid}")
