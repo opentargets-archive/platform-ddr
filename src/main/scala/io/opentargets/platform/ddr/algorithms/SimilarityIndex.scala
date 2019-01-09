@@ -1,8 +1,10 @@
 package io.opentargets.platform.ddr.algorithms
 
+import breeze.linalg.Vector
 import com.typesafe.scalalogging.LazyLogging
 import io.opentargets.platform.ddr.algorithms.SimilarityIndex.{SimilarityIndexModel, SimilarityIndexParams}
 import org.apache.spark.ml.feature._
+import org.apache.spark.ml.linalg.SparseVector
 import org.apache.spark.sql.functions.{collect_list, column, mean, udf}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
@@ -40,7 +42,7 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
         x._1.head, "scaled_scores", x._1.head + "_sorted")
         .persist()
 
-      sortedDF.show(10, truncate = false)
+      // sortedDF.show(10, truncate = false)
 
       val w2v = new Word2Vec()
         .setInputCol(x._1.head + "_sorted")
@@ -71,8 +73,8 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
   }
 
   private[ddr] def scaleScoresByIDF(df: DataFrame, scores: String, idfScores: String, newColumn: String): DataFrame = {
-    val transformer = udf((scores: Seq[Double], idfs: (Long, Seq[Long], Seq[Double])) =>
-      (scores.view zip idfs._3.view).map(p => p._1 * p._2).force)
+    val transformer = udf((scores: Seq[Double], idfs: SparseVector) =>
+      (scores zip idfs.toArray).map(p => p._1 * p._2))
 
     df.withColumn(newColumn, transformer(column(scores), column(idfScores)))
   }
