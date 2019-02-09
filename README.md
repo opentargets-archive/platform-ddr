@@ -34,6 +34,15 @@ elasticdump \
     --limit=20000 \
     --sourceOnly \
     --searchBody '{"query": { "match_all": {} }, "_source": {"excludes": ["private.*", ".private.*"]}}'
+
+
+cat 18.12_association-data.json | \
+    jq -r 'select (.evidence_count.total >= 3 and .is_direct == true) | {object: .disease.id, subject: .target.gene_info.symbol, score: ."harmonic-sum".overall}|@json'\
+        > 18.12_association-disease-based.json
+```
+
+```sh
+cat omnipath_interactions.tsv | cut -f1-3 | sort -k 1 > omnipath.tsv 
 ```
 
 # Copyright

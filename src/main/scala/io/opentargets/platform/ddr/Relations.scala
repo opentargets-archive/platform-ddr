@@ -30,7 +30,7 @@ object Relations extends LazyLogging {
     val tsyns = targetsModel.map(
       _.findSynonyms(numSynonyms)(targetsDF, "target_id", "target_synonyms"))
 
-    val dfs = List(dsyns, tsyns).filter(_.isDefined).map(_.get)
+    val dfs = List(dsyns, tsyns).withFilter(_.isDefined).map(_.get)
     logger.debug(s"computed synonym dataframes count ${dfs.length}")
 
     if (dfs.nonEmpty) {

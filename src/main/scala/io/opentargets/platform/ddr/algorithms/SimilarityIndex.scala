@@ -1,6 +1,5 @@
 package io.opentargets.platform.ddr.algorithms
 
-import breeze.linalg.Vector
 import com.typesafe.scalalogging.LazyLogging
 import io.opentargets.platform.ddr.algorithms.SimilarityIndex.{SimilarityIndexModel, SimilarityIndexParams}
 import org.apache.spark.ml.feature._
