@@ -12,25 +12,20 @@ object Relations extends LazyLogging {
     val params = SimilarityIndexParams()
     val algo = new SimilarityIndex(params)
 
-    val diseasesModel =
+    val objectModel =
       algo.fit(df,
-        groupBy = "target_id",
-        aggBy = Seq("disease_id", "disease_label", "score", "count"))
+        groupBy = "object",
+        aggBy = Seq("subject", "score"))
 
-    val targetsModel =
-      algo.fit(df,
-        groupBy = "disease_id",
-        aggBy = Seq("target_id", "target_symbol", "score", "count"))
+    val subjects = df.select(col("subject"))
+      .distinct()
+      .repartitionByRange(col("subject"))
+      .persist()
 
-    val targetsDF = df.groupBy("target_id").agg(first("target_symbol").as("target_symbol")).repartition(64).persist()
-    val diseasesDF = df.groupBy("disease_id").agg(first("disease_label").as("disease_label")).repartition(64).persist()
+    val syns = objectModel.map(
+      _.findSynonyms(numSynonyms)(subjects, "subject", "subject_synonyms"))
 
-    val dsyns = diseasesModel.map(
-      _.findSynonyms(numSynonyms)(diseasesDF, "disease_id", "disease_synonyms"))
-    val tsyns = targetsModel.map(
-      _.findSynonyms(numSynonyms)(targetsDF, "target_id", "target_synonyms"))
-
-    val dfs = List(dsyns, tsyns).withFilter(_.isDefined).map(_.get)
+    val dfs = List(syns).withFilter(_.isDefined).map(_.get)
     logger.debug(s"computed synonym dataframes count ${dfs.length}")
 
     if (dfs.nonEmpty) {

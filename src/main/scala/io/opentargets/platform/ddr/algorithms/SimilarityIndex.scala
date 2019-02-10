@@ -4,14 +4,18 @@ import com.typesafe.scalalogging.LazyLogging
 import io.opentargets.platform.ddr.algorithms.SimilarityIndex.{SimilarityIndexModel, SimilarityIndexParams}
 import org.apache.spark.ml.feature._
 import org.apache.spark.ml.linalg.SparseVector
-import org.apache.spark.sql.functions.{collect_list, column, mean, udf}
+import org.apache.spark.sql.functions.{col, collect_list, udf}
 import org.apache.spark.sql.{DataFrame, SparkSession}
+
+import scala.util._
 
 
 class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
   def fit(df: DataFrame, groupBy: String, aggBy: Seq[String]): Option[SimilarityIndexModel] = {
     aggregateDF(df, groupBy, aggBy).map(x => {
       val persistedDF = x._2.persist()
+
+      persistedDF.show(false)
 
       logger.debug(s"aggregated keys count is ${persistedDF.count} with cNames ${persistedDF.columns}")
 
@@ -37,8 +41,8 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
       // transform the dataframe and obtain the IDF scores per word in each row
       val sxxCVIDF = idfModel.transform(sxxCV)
 
-      val sortedDF = sortScoredIDs(scaleScoresByIDF(sxxCVIDF, x._1(2), "idf", "scaled_scores"),
-        x._1.head, "scaled_scores", x._1.head + "_sorted")
+      val sortedDF = sortScoredIDs(scaleScoresByIDF(sxxCVIDF, x._1.drop(1).head, "idf", "scaled_score"),
+        x._1.head, "scaled_score", x._1.head + "_sorted")
         .persist()
 
       sortedDF.show(10, truncate = false)
@@ -63,7 +67,7 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
       val colNames = aggBy.map(_ + "_list")
       val aggL = (aggBy zip colNames).map(elem => collect_list(elem._1).as(elem._2))
 
-      val filteredDF = df.groupBy(column(groupBy))
+      val filteredDF = df.groupBy(col(groupBy))
         .agg(aggL.head, aggL.tail: _*)
       Some((colNames, filteredDF))
     } else None
@@ -73,7 +77,7 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
     val transformer = udf((scores: Seq[Double], idfs: SparseVector) =>
       (scores.view zip idfs.values.view).map(p => p._1 * p._2).force)
 
-    df.withColumn(newColumn, transformer(column(scores), column(idfScores)))
+    df.withColumn(newColumn, transformer(col(scores), col(idfScores)))
   }
 
   private[ddr] def sortScoredIDs(df: DataFrame, idsColumn: String,
@@ -81,7 +85,7 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
     val transformer = udf((ids: Seq[String], scores: Seq[Double]) =>
       (ids.view zip scores.view).sortBy(-_._2).map(_._1).force)
 
-    df.withColumn(newColumn, transformer(column(idsColumn), column(scoresColumn)))
+    df.withColumn(newColumn, transformer(col(idsColumn), col(scoresColumn)))
   }
 }
 
@@ -98,9 +102,17 @@ object SimilarityIndex {
       logger.debug(s"broadcast model ${model.uid}")
       val modelBc = ss.sparkContext.broadcast(model)
 
-      val synUDF = udf((word: String) => modelBc.value.findSynonymsArray(word, n))
+      val synUDF = udf((word: String) => {
+        Try(modelBc.value.findSynonymsArray(word, n)) match {
+          case Success(value) =>
+            value
+          case Failure(exception) =>
+            logger.error(exception.getMessage)
+            Array.empty[(String, Double)]
+        }
+      })
 
-      df.withColumn(outColName, synUDF(column(inColName)))
+      df.withColumn(outColName, synUDF(col(inColName)))
     }
   }
 

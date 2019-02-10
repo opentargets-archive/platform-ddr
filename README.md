@@ -42,7 +42,12 @@ cat 18.12_association-data.json | \
 ```
 
 ```sh
-cat omnipath_interactions.tsv | cut -f1-3 | sort -k 1 > omnipath.tsv 
+wget -O interactions.tsv 'http://omnipathdb.org/interactions'
+cat interactions.tsv | cut -f1-3 | sort -k 1 > omnipath.tsv 
+```
+
+```sh
+wget -O expression_zscore.tsv 'https://storage.googleapis.com/atlas_baseline_expression/expatlas.blueprint2.baseline.z-score.binned_v2.tsv'
 ```
 
 # Copyright

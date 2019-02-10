@@ -7,10 +7,7 @@ import scopt.OptionParser
 
 
 case class CommandLineArgs(inputFile: Option[String] = None,
-                           scoreThreshold: Double = 0.1,
-                           direct: Boolean = true,
                            outputPath: Option[String] = Some("output/"),
-                           evsThreshold: Long = 3,
                            kwargs: Map[String, String] = Map())
 
 object Main extends LazyLogging {
@@ -50,10 +47,10 @@ object Main extends LazyLogging {
         ss.sparkContext.setLogLevel(logLevel)
 
         logger.info(s"process file $fname")
-        val assocsDF = Associations.parseFile(fname, config.direct, config.scoreThreshold, config.evsThreshold)
-        assocsDF.persist()
 
-        Relations(assocsDF, 20).foreach(similaritiesDF => {
+        val rawDF = ss.read.json(fname).persist()
+
+        Relations(rawDF, 20).foreach(similaritiesDF => {
           logger.info(s"save dataframe to ${config.outputPath.get}")
           similaritiesDF.write.json(config.outputPath.get)
         })
@@ -82,24 +79,6 @@ object Main extends LazyLogging {
       .valueName("<filename>")
       .action((x, c) => c.copy(inputFile = Option(x)))
       .text("file contains all associations from the OT association dump (format: jsonl)")
-
-    opt[Double]("score-threshold")
-      .abbr("t")
-      .valueName("<value>")
-      .action((x, c) => c.copy(scoreThreshold = x))
-      .text("the minimum value of the assoc scores >= (default: 0.1)")
-
-    opt[Long]("evidence-threshold")
-      .abbr("e")
-      .valueName("<value>")
-      .action((x, c) => c.copy(evsThreshold = x))
-      .text("the minimum number of evidences of the assoc total count >= (default: 3)")
-
-    opt[Boolean]("direct")
-      .abbr("d")
-      .valueName("<is-direct>")
-      .action((x, c) => c.copy(direct = x))
-      .text("only direct associations if it is true (default: true)")
 
     opt[String]("output-path")
       .abbr("o")
