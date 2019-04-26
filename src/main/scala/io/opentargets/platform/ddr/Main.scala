@@ -50,7 +50,8 @@ object Main extends LazyLogging {
 
         val rawDF = ss.read.json(fname).persist()
 
-        Relations(rawDF, 50).foreach(similaritiesDF => {
+        val nSynonyms = config.kwargs.getOrElse("synonyms", "20").toInt
+        Relations(rawDF, nSynonyms).foreach(similaritiesDF => {
           logger.info(s"save dataframe to ${config.outputPath.get}")
           similaritiesDF.write.json(config.outputPath.get)
         })

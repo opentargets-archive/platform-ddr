@@ -37,7 +37,7 @@ elasticdump \
 
 
 cat 18.12_association-data.json | \
-    jq -r 'select (.evidence_count.total >= 3 and .is_direct == true) | {object: .disease.id, subject: .target.gene_info.symbol, score: ."harmonic-sum".overall}|@json'\
+    jq -r 'select (.evidence_count.total >= 3 and .is_direct == true) | select (.evidence_count.total != 3 or .evidence_count.datasources.europepmc != 3) | {object: .disease.id, subject: .target.gene_info.symbol, score: ."harmonic-sum".overall}|@json'\
         > 18.12_association-disease-based.json
 ```
 
@@ -66,3 +66,6 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+elasticdump --input=http://localhost:9200/19.02_efo-data --output=19.02_efo-data.json --type=data --limit 10000 --sourceOnly
+elasticdump --input=http://localhost:9200/19.02_gene-data --output=19.02_gene-data.json --type=data --limit 10000 --sourceOnly
+elasticdump --input=http://localhost:9200/19.02_expression-data --output=19.02_expression-data.json --type=data --limit 10000 --sourceOnly

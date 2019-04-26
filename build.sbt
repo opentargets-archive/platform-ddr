@@ -29,6 +29,7 @@ lazy val root = (project in file("."))
     libraryDependencies ++= sparkSeq,
     libraryDependencies += scalaLoggingDep,
     libraryDependencies += scalaLogging,
+    libraryDependencies += ammonite,
 
     testFrameworks += new TestFramework("minitest.runner.Framework"),
 

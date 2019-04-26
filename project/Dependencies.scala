@@ -16,4 +16,5 @@ object Dependencies {
     "org.apache.spark" %% "spark-graphx" % "2.3.2",
     "org.apache.spark" %% "spark-mllib" % "2.3.2"
   )
+  lazy val ammonite = "com.lihaoyi" % "ammonite" % "1.6.6" % "test" cross CrossVersion.full
 }
