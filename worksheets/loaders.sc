@@ -64,4 +64,15 @@ object Loaders {
 
     assocs
   }
+
+  /** load go paths generated with scripts/grom_go_to_jsonl.py
+    *
+    */
+  def loadGOPaths(path: String)(implicit ss: SparkSession): DataFrame = {
+    val gosCols = Seq("go_id", "go_set")
+    val gos = ss.read.json(path)
+      .select(gosCols.map(col):_*)
+
+    gos
+  }
 }
