@@ -1,5 +1,5 @@
-import $ivy.`org.apache.spark::spark-core:2.4.0`
-import $ivy.`org.apache.spark::spark-sql:2.4.0`
+import $ivy.`org.apache.spark::spark-core:2.4.1`
+import $ivy.`org.apache.spark::spark-sql:2.4.1`
 import org.apache.spark._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql._
@@ -9,6 +9,16 @@ import org.apache.spark.storage.StorageLevel
 def buildGroupByDisease(zscoreLevel: Int, proteinLevel: Int)(implicit ss: SparkSession): DataFrame = {
   val genes = loaders.Loaders.loadGenes("../19.02_gene-data.json")
   val tissues = loaders.Loaders.loadExpression("../19.02_expression-data.json")
+
+  /* load gene index from ES dump
+     load gene expression for each gene from index
+     get `P` (Biological Process) starting terms 'P:axon guidance'
+     for each P get the inferred tree up to the root
+     we should stop before http://ols.wordvis.com/q=GO:0008150 (biological process)
+     GO:0008150
+     combine them from top to botton
+     remove sets / |S| == 1 and |S| >
+   */
 
   /*
     left outer join data genes with tissues so expecting genes
@@ -66,7 +76,9 @@ def buildGroupByDisease(zscoreLevel: Int, proteinLevel: Int)(implicit ss: SparkS
 }
 
 @main
-def main(output: String = "./", zscoreLevel: Int = 3, proteinLevel: Int = 1): Unit = {
+def main(output: String = "assocs_by_diseases/",
+         zscoreLevel: Int = 3,
+         proteinLevel: Int = 1): Unit = {
   println(s"running to $output with >= zscore=$zscoreLevel and protein >= level=$proteinLevel")
 
   val sparkConf = new SparkConf()
@@ -79,19 +91,9 @@ def main(output: String = "./", zscoreLevel: Int = 3, proteinLevel: Int = 1): Un
 
   val ddf = buildGroupByDisease(zscoreLevel, proteinLevel)
 //      .persist(StorageLevel.DISK_ONLY)
-  ddf.write.json(output + "/assocs_by_diseases/")
+  ddf.write.json(output)
 
   // compute similarity model from aggregated targets
   //val targetSets = ddf.select("targets")
 
 }
-
-// heart disease "EFO_0003777"
-// load gene index from ES dump
-// load gene expression for each gene from index
-// get `P` (Biological Process) starting terms 'P:axon guidance'
-// for each P get the inferred tree up to the root
-// we should stop before http://ols.wordvis.com/q=GO:0008150 (biological process)
-// GO:0008150
-// combine them from top to botton
-// remove sets / |S| == 1 and |S| >

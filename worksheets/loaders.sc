@@ -1,10 +1,7 @@
-import $ivy.`org.apache.spark::spark-core:2.4.0`
-import $ivy.`org.apache.spark::spark-sql:2.4.0`
-import org.apache.spark._
+import $ivy.`org.apache.spark::spark-core:2.4.1`
+import $ivy.`org.apache.spark::spark-sql:2.4.1`
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql._
-import org.apache.spark.sql.expressions.Window
-import org.apache.spark.storage.StorageLevel
 
 object Loaders {
   /** Load efo data from efo index dump so this allows us
