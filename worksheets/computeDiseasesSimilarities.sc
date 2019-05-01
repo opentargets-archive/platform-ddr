@@ -25,8 +25,7 @@ def main(output: String = "diseases_synonyms/",
     .getOrCreate
 
   val diseases = loaders.Loaders.loadEFO("../19.02_efo-data.json")
-    .repartitionByRange(col("id"))
-    .orderBy(col("id"))
+    .select("id", "label").distinct()
     .cache()
 
   val gruppedDiseases = ss.read.json(input)
