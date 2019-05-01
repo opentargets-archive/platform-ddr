@@ -37,6 +37,5 @@ def main(output: String = "targets_synonyms/",
 
 
   val syns = objectModel.findSynonyms(numSynonyms)(genes, "symbol", "synonyms")
-    .where(col("synonyms") notEqual Seq.empty)
     .write.json(output)
 }
