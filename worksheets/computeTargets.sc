@@ -37,17 +37,12 @@ def buildGroupByDisease(zscoreLevel: Int, proteinLevel: Int)(implicit ss: SparkS
     .orderBy(col("id"))
     .persist(StorageLevel.DISK_ONLY)
 
-  //  val eDF = Loaders.loadEFO("../19.02_efo-data.json")
-
-  // gDF.write.json(output + "/filtered_genes/")
-
   val assocs = loaders.Loaders.loadAssociations("../19.02_association-data.json")
     .where(col("score") >= 0.1)
     .repartitionByRange(col("disease_id"))
     .orderBy(col("target_id"))
     .persist(StorageLevel.DISK_ONLY)
 
-  //  val aCols = Seq("target_id", "target_name", "disease_id", "disease_name", "score", "go_id", "go_term", "organ_name")
   val aCols = Seq("target_id", "target_name", "disease_id", "go_id", "go_term", "organ_name")
 
   val aDF = assocs
@@ -90,10 +85,5 @@ def main(output: String = "assocs_by_diseases/",
     .getOrCreate
 
   val ddf = buildGroupByDisease(zscoreLevel, proteinLevel)
-//      .persist(StorageLevel.DISK_ONLY)
   ddf.write.json(output)
-
-  // compute similarity model from aggregated targets
-  //val targetSets = ddf.select("targets")
-
 }

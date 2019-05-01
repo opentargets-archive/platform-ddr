@@ -9,10 +9,10 @@ import $file.loaders
 import $file.similarities
 
 @main
-def main(output: String = "targets_synonyms/",
-         modelOutput: String = "targets_synonyms_model/",
-         input: String = "assocs_by_diseases/",
-         genesFilename: String = "../19.02_gene-data.json",
+def main(output: String = "diseases_synonyms/",
+         modelOutput: String = "diseases_synonyms_model/",
+         input: String = "assocs_by_targets/",
+         efosFilename: String = "../19.02_gene-data.json",
          numSynonyms: Int = 500): Unit = {
   println(s"running from input: $input to output:$output with synonyms=$numSynonyms")
 
@@ -24,17 +24,21 @@ def main(output: String = "targets_synonyms/",
     .config(sparkConf)
     .getOrCreate
 
-  val genes = loaders.Loaders.loadGenes(genesFilename).cache()
-  val gruppedTargets = ss.read.json(input)
+  val diseases = loaders.Loaders.loadEFO("../19.02_efo-data.json")
+    .repartitionByRange(col("id"))
+    .orderBy(col("id"))
+    .cache()
+
+  val gruppedDiseases = ss.read.json(input)
 
   val params = similarities.SimilarityIndexParams()
   val algo = new similarities.SimilarityIndex(params)
 
   val objectModel =
-    algo.fit(gruppedTargets, "targets")
+    algo.fit(gruppedDiseases, "diseases")
 
   objectModel.saveTo(modelOutput)
 
-  val syns = objectModel.findSynonyms(numSynonyms)(genes, "symbol", "synonyms")
+  val syns = objectModel.findSynonyms(numSynonyms)(diseases, "label", "synonyms")
     .write.json(output)
 }
