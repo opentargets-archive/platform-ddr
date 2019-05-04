@@ -68,6 +68,21 @@ object Loaders {
     assocs
   }
 
+  def loadEvidences(path: String)(implicit ss: SparkSession): DataFrame = {
+    // val assocCols = Seq("score", "target_id", "disease_id", "target_name", "disease_name")
+    val evidences = ss.read.json(path)
+//      .where(col("is_direct") === true)
+//      .withColumn("score", col("harmonic-sum.overall"))
+//      .withColumn("target_id", col("target.id"))
+//      .withColumn("disease_id", col("disease.id"))
+//      .withColumn("target_name", col("target.gene_info.symbol"))
+//      .withColumn("disease_name", col("disease.efo_info.label"))
+//      .select(assocCols.map(col):_*)
+
+    evidences.printSchema()
+    evidences
+  }
+
   /** load go paths generated with scripts/grom_go_to_jsonl.py
     *
     */

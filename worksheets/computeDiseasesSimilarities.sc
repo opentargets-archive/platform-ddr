@@ -17,7 +17,7 @@ def main(output: String = "diseases_synonyms/",
   println(s"running from input: $input to output:$output with synonyms=$numSynonyms")
 
   val sparkConf = new SparkConf()
-    .setAppName("similarities-targets")
+    .setAppName("similarities-diseases-model")
     .setMaster("local[*]")
 
   implicit val ss = SparkSession.builder

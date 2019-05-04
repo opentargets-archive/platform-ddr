@@ -40,7 +40,7 @@ def main(output: String = "assocs_by_targets/"): Unit = {
   println(s"running to $output")
 
   val sparkConf = new SparkConf()
-    .setAppName("similarities-targets")
+    .setAppName("similarities-diseases")
     .setMaster("local[*]")
 
   implicit val ss = SparkSession.builder
