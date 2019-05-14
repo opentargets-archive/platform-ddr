@@ -6,6 +6,17 @@ import org.apache.spark.sql._
 import $file.loaders
 import org.apache.spark.storage.StorageLevel
 
+/**
+  * R has a package to deal with ICD10 mapping
+  * https://www.r-bloggers.com/whats-that-disease-called-overview-of-icd-package/
+  *
+  * symptoms are non curated phenotypes from the complex interactions of diseases
+  * and there for some symptoms which are similar across multiple diseases so there
+  * must be same sub-mechanisms that cause those symptoms. So if you remove the
+  * common ones and use the onriched ones to classify the genes associated with a
+  * disease I would be able to link similar targets based of specific symptoms
+  * and those targets may be similar ones
+ */
 def buildGroupByTarget()(implicit ss: SparkSession): DataFrame = {
   val eDF = loaders.Loaders.loadEFO("../19.02_efo-data.json")
     .repartitionByRange(col("id"))
