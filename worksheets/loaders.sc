@@ -95,4 +95,11 @@ object Loaders {
 
     gos
   }
+
+  /** load string-db datasets using the mappings and the COG data
+    * it needs the protein mapping to symbols gene ids
+    */
+  def loadStringDB(path: String)(implicit ss: SparkSession): DataFrame = {
+    ???
+  }
 }
