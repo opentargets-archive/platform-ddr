@@ -9,13 +9,15 @@ object Loaders {
     */
   def loadEFO(path: String)(implicit ss: SparkSession): DataFrame = {
     val efoCols = Seq("id", "label", "path_code", "therapeutic_label")
+
+    val genAncestors = udf((codes: Seq[Seq[String]]) =>
+      codes.view.flatten.toSet.toSeq)
     val stripEfoID = udf((code: String) => code.split("/").last)
     val efos = ss.read.json(path)
       .withColumn("id", stripEfoID(col("code")))
       .drop("code")
       .withColumn("therapeutic_label", explode(col("therapeutic_labels")))
-      .withColumn("_paths", explode(col("path_codes")))
-      .withColumn("path_code", explode(col("_paths")))
+      .withColumn("path_code", explode(genAncestors(col("path_codes"))))
       .select(efoCols.map(col):_*)
 
     efos
