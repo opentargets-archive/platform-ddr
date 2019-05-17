@@ -27,7 +27,7 @@ def main(output: String = "targets_synonyms/",
   val genes = loaders.Loaders.loadGenes(genesFilename).cache()
   val gruppedTargets = ss.read.json(input)
 
-  val params = similarities.SimilarityIndexParams()
+  val params = similarities.SimilarityIndexParams(windowSize = 300)
   val algo = new similarities.SimilarityIndex(params)
 
   val objectModel =

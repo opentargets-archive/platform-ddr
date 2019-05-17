@@ -6,7 +6,7 @@ import org.apache.spark.sql._
 import $file.loaders
 import org.apache.spark.storage.StorageLevel
 
-def buildGroupByDisease(zscoreLevel: Int, proteinLevel: Int)(implicit ss: SparkSession): DataFrame = {
+def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(implicit ss: SparkSession): DataFrame = {
   val genes = loaders.Loaders.loadGenes("../19.02_gene-data.json")
   val tissues = loaders.Loaders.loadExpression("../19.02_expression-data.json")
 
@@ -46,10 +46,11 @@ def buildGroupByDisease(zscoreLevel: Int, proteinLevel: Int)(implicit ss: SparkS
   val aCols = Seq("target_id", "target_name", "disease_id", "go_id", "go_term", "organ_name")
 
   val aDF = assocs
-    .join(gDF, assocs("target_id") === gDF("id"), "left_outer")
+    .join(gDF, assocs("target_id") === gDF("id"), "inner")
     .where((col("go_bp") === true) and
-      (col("rna.zscore") >= zscoreLevel or
-        col("protein.level") >= proteinLevel))
+      ((col("rna.zscore") >= zscoreLevel) or
+        (col("protein.level") >= proteinLevel) or
+        (col("rna.level") >= rnaLevel)))
     .withColumn("organ_name", explode(col("organs")))
     .select(aCols.map(col):_*)
     .repartitionByRange(col("disease_id"), col("organ_name"))
@@ -72,9 +73,10 @@ def buildGroupByDisease(zscoreLevel: Int, proteinLevel: Int)(implicit ss: SparkS
 
 @main
 def main(output: String = "assocs_by_diseases/",
+         rnaLevel: Int = 2,
          zscoreLevel: Int = 3,
          proteinLevel: Int = 1): Unit = {
-  println(s"running to $output with >= zscore=$zscoreLevel and protein >= level=$proteinLevel")
+  println(s"running to $output with >= level=$rnaLevel , zscore=$zscoreLevel and protein >= level=$proteinLevel")
 
   val sparkConf = new SparkConf()
     .setAppName("similarities-targets")
@@ -84,6 +86,6 @@ def main(output: String = "assocs_by_diseases/",
     .config(sparkConf)
     .getOrCreate
 
-  val ddf = buildGroupByDisease(zscoreLevel, proteinLevel)
+  val ddf = buildGroupByDisease(zscoreLevel, rnaLevel, proteinLevel)
   ddf.write.json(output)
 }

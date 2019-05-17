@@ -12,7 +12,7 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 
 import scala.util._
 
-case class SimilarityIndexParams(windowSize: Int = 20, minWordFreq: Int = 1, minDocFreq: Int = 1)
+case class SimilarityIndexParams(windowSize: Int = 20, minWordFreq: Int = 1, minDocFreq: Int = 2)
 case class SimilarityIndexModel(model: Word2VecModel) extends LazyLogging {
   logger.debug(s"created model ${model.uid}")
 

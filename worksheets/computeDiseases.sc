@@ -25,7 +25,7 @@ def buildGroupByTarget()(implicit ss: SparkSession): DataFrame = {
 
   val assocs = loaders.Loaders.loadAssociations("../19.02_association-data.json")
     .where(col("score") >= 0.1)
-    .repartitionByRange(col("disease_id"))
+    .repartitionByRange(col("target_id"))
     .orderBy(col("disease_id"))
     .persist(StorageLevel.DISK_ONLY)
 
