@@ -9,6 +9,9 @@ import org.apache.spark.storage.StorageLevel
 def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(implicit ss: SparkSession): DataFrame = {
   val genes = loaders.Loaders.loadGenes("../19.02_gene-data.json")
   val tissues = loaders.Loaders.loadExpression("../19.02_expression-data.json")
+  val ddf = loaders.Loaders.loadStringDB("../9606.protein.links.detailed.v11.0.txt",
+    "../9606.protein.info.v11.0.txt")
+    .cache()
 
   /* load gene index from ES dump
      load gene expression for each gene from index
@@ -56,6 +59,8 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
     .repartitionByRange(col("disease_id"), col("organ_name"))
     .orderBy(col("go_id"))
     .persist(StorageLevel.DISK_ONLY)
+
+  // TODO JOIN HERE THE STRINGDB TO EACH GENE
 
   val goPaths = loaders.Loaders.loadGOPaths("../go_paths.json").drop("go_term", "go_paths")
     .orderBy(col("go_id"))
