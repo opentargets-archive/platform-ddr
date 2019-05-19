@@ -81,27 +81,23 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
     .groupBy(col("disease_id"), col("organ_name"), col("go_path_elem"))
     .agg(first(col("go_term")).as("go_term"),
       collect_set(col("target_name")).as("targets"),
-      collect_set(col("stringdb_set")).as("stringdb_set_set"),
-      approx_count_distinct(col("target_name")).as("targets_count"))
+      collect_set(col("stringdb_set")).as("stringdb_set_set"))
     .withColumn("targets_count", size(col("targets")))
     .where(col("targets_count") > 1)
     .withColumn("targets_joint",
       explode(array_union(array(col("targets")), col("stringdb_set_set"))))
     .withColumn("targets_joint_counts", size(col("targets_joint")))
+    .where(col("targets_joint_counts") < 300L)
     .drop("stringdb_set_set")
-    .persist(StorageLevel.DISK_ONLY)
 
+  computedSets
   // some sets are quite big so compute simple stats as mean, std
 //  val stats = computedSets.agg(mean(col("targets_joint_counts")).as("mean_counts"),
 //    stddev(col("targets_joint_counts")).as("std_counts"),
 //    max(col("targets_joint_counts")).as("max_counts"))
 //    .rdd.map(_.toSeq.toList)
 //    .first.toList.asInstanceOf[List[Double]]
-
 //  val threshold: Long = (stats(0) + stats(1)).toLong
-
-  // filter computed sets by joint counts < mean + std
-  computedSets.filter(col("targets_joint_counts") < 300L)
 }
 
 @main
