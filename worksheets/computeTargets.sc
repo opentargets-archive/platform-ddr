@@ -11,6 +11,8 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
   val tissues = loaders.Loaders.loadExpression("../19.04_expression-data.json")
   val ddf = loaders.Loaders.loadStringDB("../9606.protein.links.detailed.v11.0.txt",
     "../9606.protein.info.v11.0.txt")
+    .repartitionByRange(col("symbol_a"))
+    .orderBy(col("symbol_a"))
     .cache()
 
   /* load gene index from ES dump
@@ -37,15 +39,13 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
     .withColumn("go_bp", checkIfBP(col("go_term")))
     .join(tissues, Seq("id"), "left_outer")
     .repartitionByRange(col("id"))
-    .orderBy(col("id"))
 
   /*
     load associations but only direct ones and filter all with score > 0.1
    */
   val assocs = loaders.Loaders.loadAssociations("../19.04_association-data.json")
     .where(col("score") > 0.1)
-    .repartitionByRange(col("disease_id"))
-    .orderBy(col("target_id"))
+    .repartitionByRange(col("target_id"))
 
   val aCols = Seq("target_id", "target_name", "disease_id", "go_id", "go_term", "organ_name")
 
@@ -65,7 +65,6 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
     .select(aCols.map(col):_*)
     .join(ddf, col("target_name") === col("symbol_a"), "left_outer")
     .repartitionByRange(col("disease_id"), col("organ_name"))
-    .orderBy(col("go_id"))
 
   // load go ontology and cache them in order to join with joint assocs
   val goPaths = loaders.Loaders.loadGOPaths("../go_paths.json").drop("go_term", "go_paths")
@@ -82,31 +81,32 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
     .groupBy(col("disease_id"), col("organ_name"), col("go_path_elem"))
     .agg(first(col("go_term")).as("go_term"),
       collect_set(col("target_name")).as("targets"),
-      collect_list(col("stringdb_set")).as("stringdb_set_list"),
+      collect_set(col("stringdb_set")).as("stringdb_set_set"),
       approx_count_distinct(col("target_name")).as("targets_count"))
+    .withColumn("targets_count", size(col("targets")))
     .where(col("targets_count") > 1)
-    .withColumn("stringdb_set", flatten(col("stringdb_set_list")))
-    .withColumn("targets_joint", array_union(col("targets"), col("stringdb_set")))
+    .withColumn("targets_joint",
+      explode(array_union(array(col("targets")), col("stringdb_set_set"))))
     .withColumn("targets_joint_counts", size(col("targets_joint")))
-    .drop("stringdb_set_list")
+    .drop("stringdb_set_set")
     .persist(StorageLevel.DISK_ONLY)
 
   // some sets are quite big so compute simple stats as mean, std
-  val stats = computedSets.agg(mean(col("targets_joint_counts")).as("mean_counts"),
-    stddev(col("targets_joint_counts")).as("std_counts"),
-    max(col("targets_joint_counts")).as("max_counts"))
-    .rdd.map(_.toSeq.toList)
-    .first.toList.asInstanceOf[List[Double]]
+//  val stats = computedSets.agg(mean(col("targets_joint_counts")).as("mean_counts"),
+//    stddev(col("targets_joint_counts")).as("std_counts"),
+//    max(col("targets_joint_counts")).as("max_counts"))
+//    .rdd.map(_.toSeq.toList)
+//    .first.toList.asInstanceOf[List[Double]]
 
-  val threshold: Long = (stats(0) + stats(1)).toLong
+//  val threshold: Long = (stats(0) + stats(1)).toLong
 
   // filter computed sets by joint counts < mean + std
-  computedSets.filter(col("targets_joint_counts") < threshold)
+  computedSets.filter(col("targets_joint_counts") < 300L)
 }
 
 @main
 def main(output: String = "assocs_by_diseases/",
-         rnaLevel: Int = 2,
+         rnaLevel: Int = 5,
          zscoreLevel: Int = 3,
          proteinLevel: Int = 1): Unit = {
   println(s"running to $output with >= level=$rnaLevel , zscore=$zscoreLevel and protein >= level=$proteinLevel")

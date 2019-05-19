@@ -133,7 +133,9 @@ object Loaders {
         .withColumnRenamed("symbol", "symbol_b")
         .drop("protein2", "pid")
         .groupBy("symbol_a")
-        .agg(collect_set(col("symbol_b")).as("stringdb_set"))
+        .agg(collect_set(col("symbol_b")).as("_stringdb_set"))
+        .withColumn("stringdb_set",array_union(array(col("symbol_a")), col("_stringdb_set")))
+        .drop("_stringdb_set")
 
     links
   }
