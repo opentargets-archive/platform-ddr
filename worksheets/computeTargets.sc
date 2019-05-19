@@ -17,9 +17,9 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
      load gene expression for each gene from index
      get `P` (Biological Process) starting terms 'P:axon guidance'
      for each P get the inferred tree up to the root
-     we should stop before http://ols.wordvis.com/q=GO:0008150 (biological process)
+     we should stop 3 steps before http://ols.wordvis.com/q=GO:0008150 (biological process)
      GO:0008150
-     combine them from top to botton
+     combine them from bottom to top
      remove sets / |S| == 1 and |S| >
    */
 
@@ -48,6 +48,7 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
 
   val aCols = Seq("target_id", "target_name", "disease_id", "go_id", "go_term", "organ_name")
 
+  // it is not clear to me where stringdb coexpressed should be joint
   val aDF = assocs
     .join(gDF, assocs("target_id") === gDF("id"), "inner")
     .where((col("go_bp") === true) and
@@ -56,24 +57,40 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
         (col("rna.level") >= rnaLevel)))
     .withColumn("organ_name", explode(col("organs")))
     .select(aCols.map(col):_*)
+    .join(ddf, col("target_name") === col("symbol_a"), "left_outer")
     .repartitionByRange(col("disease_id"), col("organ_name"))
     .orderBy(col("go_id"))
     .persist(StorageLevel.DISK_ONLY)
-
-  // TODO JOIN HERE THE STRINGDB TO EACH GENE
 
   val goPaths = loaders.Loaders.loadGOPaths("../go_paths.json").drop("go_term", "go_paths")
     .orderBy(col("go_id"))
     .cache()
 
-  aDF
+  val computedSets = aDF
     .join(goPaths, Seq("go_id"), "inner")
     .withColumn("go_path_elem", explode(col("go_set")))
     .groupBy(col("disease_id"), col("organ_name"), col("go_path_elem"))
     .agg(first(col("go_term")).as("go_term"),
       collect_set(col("target_name")).as("targets"),
+      collect_list(col("stringdb_set")).as("stringdb_set_list"),
       approx_count_distinct(col("target_name")).as("targets_count"))
     .where(col("targets_count") > 1)
+    .withColumn("stringdb_set", flatten(col("stringdb_set_list")))
+    .withColumn("targets_joint", array_union(col("targets"), col("stringdb_set")))
+    .withColumn("targets_joint_counts", count("targets_joint"))
+    .drop("stringdb_set_list")
+    .persist(StorageLevel.DISK_ONLY)
+
+
+  val stats = computedSets.agg(mean(col("targets_joint_counts")).as("mean_counts"),
+    stddev(col("targets_joint_counts")).as("std_counts"),
+    max(col("targets_joint_counts")).as("max_counts"))
+    .rdd.map(_.toSeq.toList)
+    .first.toList.asInstanceOf[List[Double]]
+
+  val threshold: Long = (stats(0) + stats(1)).toLong
+
+  computedSets.filter(col("targets_joint_counts") < threshold)
 }
 
 @main

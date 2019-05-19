@@ -150,4 +150,5 @@ def main(): Unit = {
     .getOrCreate
 
   val ddf = Loaders.loadStringDB("../9606.protein.links.detailed.v11.0.txt", "../9606.protein.info.v11.0.txt")
+  ddf.write.json("targets_stringdb/")
 }
