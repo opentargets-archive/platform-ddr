@@ -7,8 +7,8 @@ import $file.loaders
 import org.apache.spark.storage.StorageLevel
 
 def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(implicit ss: SparkSession): DataFrame = {
-  val genes = loaders.Loaders.loadGenes("../19.02_gene-data.json")
-  val tissues = loaders.Loaders.loadExpression("../19.02_expression-data.json")
+  val genes = loaders.Loaders.loadGenes("../19.04_gene-data.json")
+  val tissues = loaders.Loaders.loadExpression("../19.04_expression-data.json")
   val ddf = loaders.Loaders.loadStringDB("../9606.protein.links.detailed.v11.0.txt",
     "../9606.protein.info.v11.0.txt")
     .cache()
@@ -16,7 +16,7 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
   /* load gene index from ES dump
      load gene expression for each gene from index
      get `P` (Biological Process) starting terms 'P:axon guidance'
-     for each P get the inferred tree up to the root
+     for each P get the inferred ancestors
      we should stop 3 steps before http://ols.wordvis.com/q=GO:0008150 (biological process)
      GO:0008150
      combine them from bottom to top
@@ -38,17 +38,23 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
     .join(tissues, Seq("id"), "left_outer")
     .repartitionByRange(col("id"))
     .orderBy(col("id"))
-    .persist(StorageLevel.DISK_ONLY)
 
-  val assocs = loaders.Loaders.loadAssociations("../19.02_association-data.json")
-    .where(col("score") >= 0.1)
+  /*
+    load associations but only direct ones and filter all with score > 0.1
+   */
+  val assocs = loaders.Loaders.loadAssociations("../19.04_association-data.json")
+    .where(col("score") > 0.1)
     .repartitionByRange(col("disease_id"))
     .orderBy(col("target_id"))
-    .persist(StorageLevel.DISK_ONLY)
 
   val aCols = Seq("target_id", "target_name", "disease_id", "go_id", "go_term", "organ_name")
 
-  // it is not clear to me where stringdb coexpressed should be joint
+  /*
+    join assocs with genes where there is a biological process and either zscore >= 3 or
+    rna level >= 2
+    group them by organ and then
+    join with stringdb coexpressed links
+   */
   val aDF = assocs
     .join(gDF, assocs("target_id") === gDF("id"), "inner")
     .where((col("go_bp") === true) and
@@ -62,10 +68,15 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
     .orderBy(col("go_id"))
     .persist(StorageLevel.DISK_ONLY)
 
+  // load go ontology and cache them in order to join with joint assocs
   val goPaths = loaders.Loaders.loadGOPaths("../go_paths.json").drop("go_term", "go_paths")
     .orderBy(col("go_id"))
     .cache()
 
+  /*
+    assocs inner join gopaths, group by go element and aggregate set of targets and list of stringdb sets and counts
+    then flatten stringdb target list of sets and compute some counts
+   */
   val computedSets = aDF
     .join(goPaths, Seq("go_id"), "inner")
     .withColumn("go_path_elem", explode(col("go_set")))
@@ -77,11 +88,11 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
     .where(col("targets_count") > 1)
     .withColumn("stringdb_set", flatten(col("stringdb_set_list")))
     .withColumn("targets_joint", array_union(col("targets"), col("stringdb_set")))
-    .withColumn("targets_joint_counts", count("targets_joint"))
+    .withColumn("targets_joint_counts", size(col("targets_joint")))
     .drop("stringdb_set_list")
     .persist(StorageLevel.DISK_ONLY)
 
-
+  // some sets are quite big so compute simple stats as mean, std
   val stats = computedSets.agg(mean(col("targets_joint_counts")).as("mean_counts"),
     stddev(col("targets_joint_counts")).as("std_counts"),
     max(col("targets_joint_counts")).as("max_counts"))
@@ -90,6 +101,7 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
 
   val threshold: Long = (stats(0) + stats(1)).toLong
 
+  // filter computed sets by joint counts < mean + std
   computedSets.filter(col("targets_joint_counts") < threshold)
 }
 
