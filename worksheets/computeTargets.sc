@@ -66,7 +66,6 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
     .join(ddf, col("target_name") === col("symbol_a"), "left_outer")
     .repartitionByRange(col("disease_id"), col("organ_name"))
     .orderBy(col("go_id"))
-    .persist(StorageLevel.DISK_ONLY)
 
   // load go ontology and cache them in order to join with joint assocs
   val goPaths = loaders.Loaders.loadGOPaths("../go_paths.json").drop("go_term", "go_paths")
