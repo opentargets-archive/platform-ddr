@@ -1,5 +1,5 @@
-import $ivy.`org.apache.spark::spark-core:2.4.1`
-import $ivy.`org.apache.spark::spark-sql:2.4.1`
+import $ivy.`org.apache.spark::spark-core:2.4.3`
+import $ivy.`org.apache.spark::spark-sql:2.4.3`
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql._
@@ -73,17 +73,7 @@ object Loaders {
   }
 
   def loadEvidences(path: String)(implicit ss: SparkSession): DataFrame = {
-    // val assocCols = Seq("score", "target_id", "disease_id", "target_name", "disease_name")
     val evidences = ss.read.json(path)
-//      .where(col("is_direct") === true)
-//      .withColumn("score", col("harmonic-sum.overall"))
-//      .withColumn("target_id", col("target.id"))
-//      .withColumn("disease_id", col("disease.id"))
-//      .withColumn("target_name", col("target.gene_info.symbol"))
-//      .withColumn("disease_name", col("disease.efo_info.label"))
-//      .select(assocCols.map(col):_*)
-
-    evidences.printSchema()
     evidences
   }
 
@@ -151,6 +141,9 @@ def main(): Unit = {
     .config(sparkConf)
     .getOrCreate
 
-  val ddf = Loaders.loadStringDB("../9606.protein.links.detailed.v11.0.txt", "../9606.protein.info.v11.0.txt")
-  ddf.write.json("targets_stringdb/")
+//  val ddf = Loaders.loadStringDB("../9606.protein.links.detailed.v11.0.txt", "../9606.protein.info.v11.0.txt")
+//  ddf.write.json("targets_stringdb/")
+
+  val ddf = Loaders.loadEvidences("../19.04_evidence-data.json")
+  ddf.printSchema
 }

@@ -1,6 +1,6 @@
-import $ivy.`org.apache.spark::spark-core:2.4.1`
-import $ivy.`org.apache.spark::spark-sql:2.4.1`
-import $ivy.`org.apache.spark::spark-mllib:2.4.1`
+import $ivy.`org.apache.spark::spark-core:2.4.3`
+import $ivy.`org.apache.spark::spark-sql:2.4.3`
+import $ivy.`org.apache.spark::spark-mllib:2.4.3`
 import $ivy.`com.typesafe.scala-logging::scala-logging:3.9.0`
 import $ivy.`com.github.fommil.netlib:all:1.1.2`
 

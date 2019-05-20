@@ -1,5 +1,5 @@
-import $ivy.`org.apache.spark::spark-core:2.4.1`
-import $ivy.`org.apache.spark::spark-sql:2.4.1`
+import $ivy.`org.apache.spark::spark-core:2.4.3`
+import $ivy.`org.apache.spark::spark-sql:2.4.3`
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql._
 import $file.loaders
