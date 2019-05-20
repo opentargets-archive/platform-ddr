@@ -141,9 +141,9 @@ def main(): Unit = {
     .config(sparkConf)
     .getOrCreate
 
-//  val ddf = Loaders.loadStringDB("../9606.protein.links.detailed.v11.0.txt", "../9606.protein.info.v11.0.txt")
-//  ddf.write.json("targets_stringdb/")
+  val ddf = Loaders.loadStringDB("../9606.protein.links.detailed.v11.0.txt", "../9606.protein.info.v11.0.txt")
+  ddf.write.json("targets_stringdb/")
 
-  val ddf = Loaders.loadEvidences("../19.04_evidence-data.json")
-  ddf.printSchema
+//  val ddf = Loaders.loadEvidences("../19.04_evidence-data.json")
+//  ddf.printSchema
 }
