@@ -9,4 +9,10 @@ object Functions {
 
   def addList =
     udf((el: Seq[String], array: Seq[Seq[String]]) => array ++ Array(el))
+
+  def getDuplicates =
+    udf((xs: Seq[String]) => {
+      xs.view.groupBy(identity)
+        .collect { case (x,ys) if ys.lengthCompare(1) > 0 => x }.toSeq
+    })
 }

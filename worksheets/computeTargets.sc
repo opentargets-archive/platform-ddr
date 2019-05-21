@@ -4,6 +4,7 @@ import org.apache.spark._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql._
 import $file.loaders
+import $file.funcs
 import org.apache.spark.storage.StorageLevel
 
 def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(implicit ss: SparkSession): DataFrame = {
@@ -90,14 +91,10 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
     .where(col("targets_count") > 1)
     // just checking this instead explode the array union
     .withColumn("targets_joint",
-      array_union(array(col("targets")), col("stringdb_set_set")))
+      array_union(col("targets"),
+        funcs.Functions.getDuplicates(flatten(col("stringdb_set_set")))))
     .withColumn("targets_joint_counts", size(col("targets_joint")))
-
-//    .withColumn("targets_joint",
-//      explode(array_union(array(col("targets")), col("stringdb_set_set"))))
-//    .withColumn("targets_joint_counts", size(col("targets_joint")))
-//    .where(col("targets_joint_counts") < 300L)
-//    .drop("stringdb_set_set")
+    .drop("stringdb_set_set")
 
   computedSets
   // some sets are quite big so compute simple stats as mean, std
