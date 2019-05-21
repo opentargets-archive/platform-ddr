@@ -8,6 +8,7 @@ import $file.funcs
 import org.apache.spark.storage.StorageLevel
 
 def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(implicit ss: SparkSession): DataFrame = {
+  val bannedDiseases = List("EFO_0000311", "EFO_0000616", "EFO_0000313")
   val genes = loaders.Loaders.loadGenes("../19.04_gene-data.json")
   val tissues = loaders.Loaders.loadExpression("../19.04_expression-data.json")
   val ddf = loaders.Loaders.loadStringDB("../9606.protein.links.detailed.v11.0.txt",
@@ -47,9 +48,9 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
   val assocs = loaders.Loaders.loadAssociations("../19.04_association-data.json")
     .where(col("score") > 0.1)
     .repartitionByRange(col("target_id"))
+    .where(not(col("disease_id") isInCollection bannedDiseases))
 
   val aCols = Seq("target_id", "target_name", "disease_id", "go_id", "go_term", "label")
-//  val aCols = Seq("target_id", "target_name", "disease_id", "go_id", "go_term", "organ_name")
 
   /*
     join assocs with genes where there is a biological process and either zscore >= 3 or
@@ -63,10 +64,8 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
       ((col("rna.zscore") >= zscoreLevel) or
         (col("protein.level") >= proteinLevel) or
         (col("rna.level") >= rnaLevel)))
-    // .withColumn("organ_name", explode(col("organs")))
     .select(aCols.map(col):_*)
     .join(ddf, col("target_name") === col("symbol_a"), "left_outer")
-//    .repartitionByRange(col("disease_id"), col("organ_name"))
     .repartitionByRange(col("disease_id"), col("label"))
 
   // load go ontology and cache them in order to join with joint assocs
@@ -82,14 +81,12 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
     .join(goPaths, Seq("go_id"), "inner")
     .withColumn("go_path_elem", explode(col("go_set")))
     .groupBy(col("disease_id"), col("label"), col("go_path_elem"))
-//    .groupBy(col("disease_id"), col("organ_name"), col("go_path_elem"))
     .agg(first(col("go_term")).as("go_term"),
       collect_set(col("target_name")).as("targets"),
       collect_set(col("stringdb_set")).as("stringdb_set_set"))
     .withColumn("targets_count", size(col("targets")))
     // we dont want sets of cardinality 1
     .where(col("targets_count") > 1)
-    // just checking this instead explode the array union
     .withColumn("targets_joint",
       array_union(col("targets"),
         funcs.Functions.getDuplicates(flatten(col("stringdb_set_set")))))
@@ -97,13 +94,6 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
     .drop("stringdb_set_set")
 
   computedSets
-  // some sets are quite big so compute simple stats as mean, std
-//  val stats = computedSets.agg(mean(col("targets_joint_counts")).as("mean_counts"),
-//    stddev(col("targets_joint_counts")).as("std_counts"),
-//    max(col("targets_joint_counts")).as("max_counts"))
-//    .rdd.map(_.toSeq.toList)
-//    .first.toList.asInstanceOf[List[Double]]
-//  val threshold: Long = (stats(0) + stats(1)).toLong
 }
 
 @main
