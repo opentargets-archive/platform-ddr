@@ -54,7 +54,7 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
 
   /*
     join assocs with genes where there is a biological process and either zscore >= 3 or
-    rna level >= 2
+    rna level >= 5?
     group them by organ and then
     join with stringdb coexpressed links
    */
@@ -79,7 +79,7 @@ def buildGroupByDisease(zscoreLevel: Int, rnaLevel: Int, proteinLevel: Int)(impl
    */
   val computedSets = aDF
     .join(goPaths, Seq("go_id"), "inner")
-    .withColumn("go_path_elem", explode(col("go_set")))
+    .withColumn("go_path_elem", explode(slice(col("go_set"), 1, 2)))
     .groupBy(col("disease_id"), col("label"), col("go_path_elem"))
     .agg(first(col("go_term")).as("go_term"),
       collect_set(col("target_name")).as("targets"),

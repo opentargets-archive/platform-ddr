@@ -12,8 +12,8 @@ import $file.similarities
 def main(output: String = "targets_synonyms/",
          modelOutput: String = "targets_synonyms_model/",
          input: String = "assocs_by_diseases/",
-         genesFilename: String = "../19.02_gene-data.json",
-         numSynonyms: Int = 500): Unit = {
+         genesFilename: String = "../19.04_gene-data.json",
+         numSynonyms: Int = 100): Unit = {
   println(s"running from input: $input to output:$output with synonyms=$numSynonyms")
 
   val sparkConf = new SparkConf()

@@ -52,6 +52,7 @@ class SimilarityIndex(val params: SimilarityIndexParams) extends LazyLogging {
       .setMinCount(params.minWordFreq)
       .setWindowSize(params.windowSize)
       .setVectorSize(300)
+      .setNumPartitions(10)
 
     val w2vModel = w2v.fit(df)
 
