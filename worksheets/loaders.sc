@@ -141,9 +141,23 @@ def main(): Unit = {
     .config(sparkConf)
     .getOrCreate
 
-  val ddf = Loaders.loadStringDB("../9606.protein.links.detailed.v11.0.txt", "../9606.protein.info.v11.0.txt")
-  ddf.write.json("targets_stringdb/")
+//  val ddf = Loaders.loadStringDB("../9606.protein.links.detailed.v11.0.txt", "../9606.protein.info.v11.0.txt")
+//  ddf.write.json("targets_stringdb/")
 
-//  val ddf = Loaders.loadEvidences("../19.04_evidence-data.json")
-//  ddf.printSchema
+  val ddf = Loaders.loadEvidences("../19.04_evidence-data.json")
+
+  val agg = ddf
+      .where(col("datatype") === "known_drug")
+    .groupBy(col("disease.id"), col("drug.id"), col("evidence.drug2clinic.clinical_trial_phase.label"),
+      col("evidence.drug2clinic.status"), col("target.target_name"))
+    .agg(collect_list(col("evidence.drug2clinic.urls").as("list_urls")),
+      count(col("evidence.drug2clinic.urls")).as("list_urls_counts"),
+      first(col("drug.molecule_type")).as("drug_type"),
+      first(col("target2drug.mechanism_of_action")).as("mechanism_of_action"),
+      first(col("target.activity")).as("activity"),
+      first(col("target.target_class")).as("target_class")
+    )
+
+  agg.write
+    .json("evidences_agg_drugs")
 }
