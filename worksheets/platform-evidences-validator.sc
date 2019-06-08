@@ -76,5 +76,16 @@ def main(evidencePath: String, outputPathPrefix: String = "out/"): Unit = {
     .select("basename", "basename2", "hash_digest", "hash_raw")
     .show
 
-  println(evidences.schema.prettyJson)
+  println(evidences.schema.sql)
+
+  /**
+    * compute count of same hashes and save out the ones > 1
+    *
+    * explanation_type "type of issue"
+    * explanation_str "description of the issue"
+    * use a when.otherwise to set all filters
+    *
+    * check type field move to data_type
+    * check sourceID field move to data_source
+    */
 }
