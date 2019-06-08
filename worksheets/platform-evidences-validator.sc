@@ -1,10 +1,10 @@
 import $ivy.`org.apache.spark::spark-core:2.4.3`
 import $ivy.`org.apache.spark::spark-sql:2.4.3`
+import $ivy.`sh.almond::ammonite-spark:0.4.2`
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.functions._
 import org.apache.spark.sql._
-import org.apache.spark.storage.StorageLevel
-import org.codehaus.jackson.annotate.JsonRawValue
+import org.apache.spark.sql.functions._
+
 
 object Loaders {
   /** Load efo data from efo index dump so this allows us
@@ -18,7 +18,6 @@ object Loaders {
     val stripEfoID = udf((code: String) => code.split("/").last)
     val efos = ss.read.json(path)
       .withColumn("id", stripEfoID(col("code")))
-      .withColumn("therapeutic_label", explode(col("therapeutic_labels")))
       .withColumn("path_code", genAncestors(col("path_codes")))
 
     efos
@@ -47,8 +46,8 @@ object Loaders {
     })
     val evidences = ss
       .read
-      .option("mode", "PERMISSIVE")
-      .option("columnNameOfCorruptRecord", "is_valid")
+      .option("mode", "DROPMALFORMED")
+      .option("badRecordsPath", "fails/")
       .json(path)
 
     evidences
@@ -60,9 +59,7 @@ object Loaders {
 
 @main
 def main(evidencePath: String, outputPathPrefix: String = "out/"): Unit = {
-  val sparkConf = new SparkConf()
-    .setAppName("similarities-loaders")
-    .setMaster("local[*]")
+  val sparkConf = new SparkConf().setAppName("similarities-loaders").setMaster("local[*]")
 
   implicit val ss = SparkSession.builder
     .config(sparkConf)
@@ -73,6 +70,11 @@ def main(evidencePath: String, outputPathPrefix: String = "out/"): Unit = {
 
   val evidences = Loaders.loadEvidences(evidencePath)
   evidences
-    .select("unique_association_fields", "hash_raw", "hash_digest")
-    .show(false)
+    // .selectExpr("element_at(split(filename,'/'),-1) as basename", "hash_digest", "hash_raw")
+    .withColumn("basename", expr("element_at(split(filename,'/'),-1)"))
+    .withColumn("basename2", split(col("filename"),"/").getItem(-1))
+    .select("basename", "basename2", "hash_digest", "hash_raw")
+    .show
+
+  println(evidences.schema.prettyJson)
 }
