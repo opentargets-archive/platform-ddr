@@ -42,7 +42,7 @@ object Loaders {
     val struct2SortedValues = udf((r: Row) => {
       val fields = r.schema.fieldNames.sorted
       val values = r.getValuesMap[String](fields)
-      values.map(_.toString).mkString
+      values.view.filter(_._2 != "null").map(_.toString).mkString
     })
 
     val evidences = ss
