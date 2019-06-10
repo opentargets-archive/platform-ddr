@@ -10,32 +10,32 @@ object Loaders {
     * to navegate through the ontology
     */
   def loadEFO(path: String)(implicit ss: SparkSession): DataFrame = {
-    val efoCols = Seq("id", "label", "path_code", "therapeutic_label")
-
     val genAncestors = udf((codes: Seq[Seq[String]]) =>
       codes.view.flatten.toSet.toSeq)
+
     val stripEfoID = udf((code: String) => code.split("/").last)
     val efos = ss.read.json(path)
-      .withColumn("id", stripEfoID(col("code")))
-      .withColumn("therapeutic_label", explode(col("therapeutic_labels")))
+      .withColumn("efo_id", stripEfoID(col("code")))
       .withColumn("path_code", genAncestors(col("path_codes")))
+      .drop("paths")
 
     efos
-      .repartitionByRange(col("id"))
-      .sortWithinPartitions(col("id"))
+      .repartitionByRange(col("efo_id"))
+      .sortWithinPartitions(col("efo_id"))
   }
 
   /** Load gene data from gene index dump in order to have a comprehensive list
     * of genes with their symbol biotype and name
     */
   def loadGenes(path: String)(implicit ss: SparkSession): DataFrame = {
-    val geneCols = Seq("id", "biotype", "approved_symbol", "approved_name", "go")
     val genes = ss.read.json(path)
 
     genes
-      .drop("drugbank", "uniprot", "pfam", "reactome")
-      .repartitionByRange(col("id"))
-      .sortWithinPartitions(col("id"))
+      .withColumnRenamed("id", "gene_id")
+      .repartitionByRange(col("gene_id"))
+      .sortWithinPartitions(col("gene_id"))
+      .selectExpr("*", "_private.facets.*", "tractability.*")
+      .drop("drugbank", "uniprot", "pfam", "reactome", "_private", "ortholog", "tractability")
   }
 
   /** Load expression data index dump and exploding the tissues vector so
@@ -43,11 +43,10 @@ object Loaders {
     * estructure to multi column
     */
   def loadExpression(path: String)(implicit ss: SparkSession): DataFrame = {
-    val tissueCols = Seq("id", "_tissue.*")
+    // val tissueCols = Seq("id", "_tissue.*")
     val tissues = ss.read.json(path)
-      .withColumn("_tissue", explode(col("tissues")))
+      // .withColumn("_tissue", explode(col("tissues")))
       .withColumnRenamed("gene", "id")
-      .select(tissueCols.map(col):_*)
 
     tissues
       .repartitionByRange(col("id"))
@@ -61,24 +60,35 @@ object Loaders {
     * - cache list unique diseases and list unique targets
     */
   def loadAssociations(path: String)(implicit ss: SparkSession): DataFrame = {
-    val assocCols = Seq("score", "target_id", "disease_id", "target_name", "disease_name")
     val assocs = ss.read.json(path)
       .withColumn("score", col("harmonic-sum.overall"))
       .withColumn("target_id", col("target.id"))
-      .withColumn("disease_id", to_json(col("disease.id")))
+      .withColumn("disease_id", col("disease.id"))
       .withColumn("target_name", col("target.gene_info.symbol"))
       .withColumn("disease_name", col("disease.efo_info.label"))
+      .withColumn("score_datasource", col("harmonic-sum.datasources"))
+      .withColumn("score_datatype", col("harmonic-sum.datatypes"))
+      .drop("private", "_private", "target", "disease", "id")
     assocs
   }
 
   def loadEvidences(path: String)(implicit ss: SparkSession): DataFrame = {
     val evidences = ss.read.json(path)
     evidences
+      .drop("private", "validated_against_schema_version")
+      .selectExpr("target.id as evs_target_id", "disease.id as evs_disease_id", "evidence as evs_object",
+        "literature.references as evs_literature_ref", "scores.association_score as evs_score",
+        "unique_association_fields as evs_unique_field")
+      .groupBy(col("evs_target_id"), col("evs_disease_id"))
+      .agg(collect_list(col("evs_object")).as("evs_objects"),
+        collect_list(col("evs_literature_ref")).as("evs_literature_refs"),
+        collect_list(col("evs_score")).as("evs_scores"),
+        collect_list(col("evs_unique_field")).as("evs_unique_fields"))
   }
 }
 
 @main
-def main(inputPathPrefix: String = "./", outputPathPrefix: String = "out/"): Unit = {
+def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
   val sparkConf = new SparkConf()
     .setAppName("similarities-loaders")
     .setMaster("local[*]")
@@ -88,33 +98,31 @@ def main(inputPathPrefix: String = "./", outputPathPrefix: String = "out/"): Uni
     .getOrCreate
 
   val genes = Loaders.loadGenes(inputPathPrefix + "19.04_gene-data.json")
-  genes.write.parquet(outputPathPrefix + "targets/")
+  genes.write.json(outputPathPrefix + "targets/")
 
   val diseases = Loaders.loadEFO(inputPathPrefix + "19.04_efo-data.json")
-  diseases.write.parquet(outputPathPrefix + "diseases/")
+  diseases.write.json(outputPathPrefix + "diseases/")
 
-  val expression = Loaders.loadExpression(inputPathPrefix + "19.04_expression-data.json")
-  expression.write.parquet(outputPathPrefix + "expression/")
+//  val expression = Loaders.loadExpression(inputPathPrefix + "19.04_expression-data.json")
+//  expression.write.parquet(outputPathPrefix + "expression/")
 
   val evidences = Loaders.loadEvidences(inputPathPrefix + "19.04_evidence-data.json")
-  evidences
-    .repartitionByRange(col("target.id"))
-    .sortWithinPartitions(col("target.id"), col("disease.id"))
-    .write.parquet(outputPathPrefix + "evidences_t")
-
-  evidences
-    .repartitionByRange(col("disease.id"))
-    .sortWithinPartitions(col("disease.id"), col("target.id"))
-    .write.parquet(outputPathPrefix + "evidences_d")
+    .repartitionByRange(col("evs_target_id"))
+    .sortWithinPartitions(col("evs_target_id"), col("evs_disease_id"))
 
   val associations = Loaders.loadAssociations(inputPathPrefix + "19.04_association-data.json")
-  associations
-    .repartitionByRange(col("target.id"))
-    .sortWithinPartitions(col("target.id"), col("disease.id"))
-    .write.parquet(outputPathPrefix + "associations_t")
+    .repartitionByRange(col("target_id"))
+    .sortWithinPartitions(col("target_id"), col("disease_id"))
 
-  associations
-    .repartitionByRange(col("disease.id"))
-    .sortWithinPartitions(col("disease.id"), col("target.id"))
-    .write.parquet(outputPathPrefix + "associations_d")
+  val assocsEvs = associations
+    .join(evidences, associations("target_id") === evidences("evs_target_id") and
+      (associations("disease_id") === evidences("evs_disease_id")), "inner")
+
+  val assocsEvsGenes = assocsEvs
+    .join(genes, assocsEvs("target_id") === genes("gene_id"), "inner")
+
+    val assocsEvsGenesEfos = assocsEvsGenes
+      .join(diseases, assocsEvsGenes("disease_id") === diseases("efo_id"), "inner")
+      .write.json(outputPathPrefix + "ot_data/")
+
 }
