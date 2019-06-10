@@ -44,16 +44,25 @@ object Loaders {
       val values = r.getValuesMap[String](fields)
       values.map(_.toString).mkString
     })
+
     val evidences = ss
       .read
       .option("mode", "DROPMALFORMED")
-      .option("badRecordsPath", "fails/")
       .json(path)
 
     evidences
       .withColumn("filename", input_file_name)
       .withColumn("hash_raw", struct2SortedValues(col("unique_association_fields")))
       .withColumn("hash_digest",sha2(col("hash_raw"), 256))
+  }
+}
+
+object Evidences {
+  def computeDuplicates(df: DataFrame, selectSeq: Seq[String]): DataFrame = {
+    df.select(selectSeq.head, selectSeq.tail:_*)
+      .groupBy(selectSeq.map(col):_*)
+      .count
+      .where(col("count") > 1)
   }
 }
 
@@ -69,23 +78,34 @@ def main(evidencePath: String, outputPathPrefix: String = "out/"): Unit = {
 //  val diseases = Loaders.loadEFO(inputPathPrefix + "19.04_efo-data.json")
 
   val evidences = Loaders.loadEvidences(evidencePath)
-  evidences
+  val evs = evidences
+    // XXX multiple ways of computing the same thing udfs can be exported to SQL side too
     // .selectExpr("element_at(split(filename,'/'),-1) as basename", "hash_digest", "hash_raw")
     .withColumn("basename", expr("element_at(split(filename,'/'),-1)"))
     .withColumn("basename2", split(col("filename"),"/").getItem(-1))
-    .select("basename", "basename2", "hash_digest", "hash_raw")
-    .show
+    .withColumnRenamed("type", "data_type")
+    .withColumnRenamed("sourceID", "data_source")
+    .repartitionByRange(col("hash_digest"))
+    .persist
 
-  println(evidences.schema.sql)
+  // get all hash ids with duplicates > 1 and then cache fully in mem
+  val dups = Evidences.computeDuplicates(evs, Seq("hash_digest"))
+    .cache
 
-  /**
-    * compute count of same hashes and save out the ones > 1
-    *
-    * explanation_type "type of issue"
-    * explanation_str "description of the issue"
-    * use a when.otherwise to set all filters
-    *
-    * check type field move to data_type
-    * check sourceID field move to data_source
+//  dups.show(false)
+
+  // join full outer with the dups dataframe on hash_digest and persist
+  val uevs = evs.join(broadcast(dups), Seq("hash_digest"), "full_outer")
+    .persist
+
+  /** unpersist previous evs as we don't need it any more although this is
+    * optional as data is not quite big
     */
+  evs.unpersist
+
+  /** save the ones with some count > 1 or the ones that count is null which
+    * are the ones are not duplicates
+    */
+  uevs.where(col("count").isNull).write.json(outputPathPrefix + "/uniques/")
+  uevs.where(col("count").isNotNull).write.json(outputPathPrefix + "/duplicates/")
 }
