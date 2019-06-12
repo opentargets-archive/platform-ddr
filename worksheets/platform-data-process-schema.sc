@@ -3,7 +3,10 @@ import $ivy.`org.apache.spark::spark-sql:2.4.3`
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql._
+import org.apache.spark.sql.types._
 import org.apache.spark.sql.types.StructType
+
+import scala.io._
 
 object Loaders {
   def generateOTDataSchema(path: String)(implicit ss: SparkSession): StructType = {
@@ -15,7 +18,7 @@ object Loaders {
 }
 
 @main
-def main(inputPathPrefix: String): Unit = {
+def main(inputPathPrefix: String, jsonSchemaFilename: String): Unit = {
   val sparkConf = new SparkConf()
     .setAppName("similarities-loaders")
     .setMaster("local[*]")
@@ -24,7 +27,11 @@ def main(inputPathPrefix: String): Unit = {
     .config(sparkConf)
     .getOrCreate
 
-  val schema = Loaders.generateOTDataSchema(inputPathPrefix)
-  println(schema.json)
+  val lines = Source.fromFile(jsonSchemaFilename).getLines.mkString
+  val newSchema=DataType.fromJson(lines).asInstanceOf[StructType]
+  ss.read.schema(newSchema).json(inputPathPrefix).where(col("target_id") === "ENSG00000091831")
+    .write.json("esr1.json")
 
+//  val schema = Loaders.generateOTDataSchema(inputPathPrefix)
+//  println(schema.json)
 }
