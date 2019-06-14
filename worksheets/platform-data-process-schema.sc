@@ -1,5 +1,8 @@
+import $ivy.`com.github.pathikrit::better-files:3.8.0`
 import $ivy.`org.apache.spark::spark-core:2.4.3`
 import $ivy.`org.apache.spark::spark-sql:2.4.3`
+
+import better.files._
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql._
@@ -27,7 +30,7 @@ def main(inputPathPrefix: String, jsonSchemaFilename: String): Unit = {
     .config(sparkConf)
     .getOrCreate
 
-  val lines = Source.fromFile(jsonSchemaFilename).getLines.mkString
+  val lines = jsonSchemaFilename.toFile.contentAsString
   val newSchema=DataType.fromJson(lines).asInstanceOf[StructType]
   ss.read.schema(newSchema).json(inputPathPrefix).where(col("target_id") === "ENSG00000091831")
     .write.json("esr1.json")

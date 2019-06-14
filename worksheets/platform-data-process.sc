@@ -1,5 +1,8 @@
+import $ivy.`com.github.pathikrit::better-files:3.8.0`
 import $ivy.`org.apache.spark::spark-core:2.4.3`
 import $ivy.`org.apache.spark::spark-sql:2.4.3`
+
+import better.files._
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql._

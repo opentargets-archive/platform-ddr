@@ -4,6 +4,7 @@ import $ivy.`sh.almond::ammonite-spark:0.4.2`
 import org.apache.spark.SparkConf
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
+import org.apache.spark.storage.StorageLevel
 
 
 object Loaders {
