@@ -20,6 +20,42 @@ object Loaders {
   }
 }
 
+object Appliers {
+  def flattenDataframe(df: DataFrame): DataFrame = {
+    def flattenStruct(field: StructField): Seq[Column] = {
+      field.dataType match {
+        case sType: StructType =>
+          val structFields = sType.fields.map(e => (field.name :: e.name :: Nil).mkString("."))
+          val structFieldsNewNames = structFields.map(_.replace(".", "_"))
+          (structFields zip structFieldsNewNames).map(e => col(e._1).as(e._2))
+      }
+    }
+
+    def flattenArray(field: StructField): Seq[Column] = ???
+
+    def allStructColumnNames(xs: Seq[StructField]): Seq[StructField] =
+      xs.filter(_.dataType match {
+        case _: StructType => true
+        case _ => false
+      })
+
+    def _flattenDataFrame(df: DataFrame): DataFrame = {
+      val fdf = allStructColumnNames(df.schema.fields)
+
+      if (fdf.isEmpty) {
+        df
+      } else {
+        val ddf = df.select(col("*") +: fdf.flatMap(flattenStruct): _*)
+          .drop(fdf.map(_.name): _*)
+
+        _flattenDataFrame(ddf)
+      }
+    }
+
+    _flattenDataFrame(df)
+  }
+}
+
 @main
 def main(inputPathPrefix: String, jsonSchemaFilename: String): Unit = {
   val sparkConf = new SparkConf()
@@ -32,8 +68,11 @@ def main(inputPathPrefix: String, jsonSchemaFilename: String): Unit = {
 
   val lines = jsonSchemaFilename.toFile.contentAsString
   val newSchema=DataType.fromJson(lines).asInstanceOf[StructType]
-  ss.read.schema(newSchema).json(inputPathPrefix).where(col("target_id") === "ENSG00000091831")
-    .write.json("esr1.json")
+  val esr1 = ss.read.schema(newSchema).json(inputPathPrefix)
+
+  Appliers.flattenDataframe(esr1)
+    .selectExpr("*", "cancerbiomarkers.drug as cancerbiomarkers_drug")
+    .write.json("esr1_flatten/")
 
 //  val schema = Loaders.generateOTDataSchema(inputPathPrefix)
 //  println(schema.json)
