@@ -18,13 +18,13 @@ object Loaders {
 
     val stripEfoID = udf((code: String) => code.split("/").last)
     val efos = ss.read.json(path)
-      .withColumn("efo_id", stripEfoID(col("code")))
+      .withColumn("disease_id", stripEfoID(col("code")))
       .withColumn("path_code", genAncestors(col("path_codes")))
       .drop("paths")
 
     efos
-      .repartitionByRange(col("efo_id"))
-      .sortWithinPartitions(col("efo_id"))
+      .repartitionByRange(col("disease_id"))
+      .sortWithinPartitions(col("disease_id"))
   }
 
   /** Load gene data from gene index dump in order to have a comprehensive list
@@ -34,9 +34,9 @@ object Loaders {
     val genes = ss.read.json(path)
 
     genes
-      .withColumnRenamed("id", "gene_id")
-      .repartitionByRange(col("gene_id"))
-      .sortWithinPartitions(col("gene_id"))
+      .withColumnRenamed("id", "target_id")
+      .repartitionByRange(col("target_id"))
+      .sortWithinPartitions(col("target_id"))
       .selectExpr("*", "_private.facets.*", "tractability.*")
       .drop("drugbank", "uniprot", "pfam", "reactome", "_private", "ortholog", "tractability")
   }
@@ -49,11 +49,11 @@ object Loaders {
     // val tissueCols = Seq("id", "_tissue.*")
     val tissues = ss.read.json(path)
       // .withColumn("_tissue", explode(col("tissues")))
-      .withColumnRenamed("gene", "id")
+      .withColumnRenamed("gene", "target_id")
 
     tissues
-      .repartitionByRange(col("id"))
-      .sortWithinPartitions(col("id"))
+      .repartitionByRange(col("target_id"))
+      .sortWithinPartitions(col("target_id"))
   }
 
   /** Load associations from ES index dump and filter by
@@ -79,12 +79,11 @@ object Loaders {
     val evidences = ss.read.json(path)
     evidences
       .drop("private", "validated_against_schema_version")
-      .selectExpr("target.id as evs_target_id", "disease.id as evs_disease_id", "evidence as evs_object",
+      .selectExpr("target.id as target_id", "disease.id as disease_id",
         "literature.references as evs_literature_ref", "scores.association_score as evs_score",
         "unique_association_fields as evs_unique_field")
-      .groupBy(col("evs_target_id"), col("evs_disease_id"))
-      .agg(collect_list(col("evs_object")).as("evs_objects"),
-        collect_list(col("evs_literature_ref")).as("evs_literature_refs"),
+      .groupBy(col("target_id"), col("disease_id"))
+      .agg(collect_list(col("evs_literature_ref")).as("evs_literature_refs"),
         collect_list(col("evs_score")).as("evs_scores"),
         collect_list(col("evs_unique_field")).as("evs_unique_fields"))
   }
@@ -110,22 +109,23 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
 //  expression.write.parquet(outputPathPrefix + "expression/")
 
   val evidences = Loaders.loadEvidences(inputPathPrefix + "19.04_evidence-data.json")
-    .repartitionByRange(col("evs_target_id"))
-    .sortWithinPartitions(col("evs_target_id"), col("evs_disease_id"))
+    .repartitionByRange(col("target_id"))
+    .sortWithinPartitions(col("target_id"), col("disease_id"))
 
   val associations = Loaders.loadAssociations(inputPathPrefix + "19.04_association-data.json")
     .repartitionByRange(col("target_id"))
     .sortWithinPartitions(col("target_id"), col("disease_id"))
 
   val assocsEvs = associations
-    .join(evidences, associations("target_id") === evidences("evs_target_id") and
-      (associations("disease_id") === evidences("evs_disease_id")), "inner")
+    .join(evidences, Seq("target_id", "disease_id"), "inner")
 
   val assocsEvsGenes = assocsEvs
-    .join(genes, assocsEvs("target_id") === genes("gene_id"), "inner")
+    .join(genes, Seq("target_id"), "inner")
 
-    val assocsEvsGenesEfos = assocsEvsGenes
-      .join(diseases, assocsEvsGenes("disease_id") === diseases("efo_id"), "inner")
-      .write.json(outputPathPrefix + "ot_data/")
+  val assocsEvsGenesEfos = assocsEvsGenes
+    .join(diseases, Seq("disease_id"), "inner")
 
+  assocsEvsGenesEfos.write.json(outputPathPrefix + "ot_data/")
+
+  outputPathPrefix / "schema.json" < assocsEvsGenesEfos.schema.json
 }
