@@ -7,6 +7,7 @@ import better.files.Dsl._
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql._
+import org.apache.spark.sql.types.{ArrayType, DataType, StructField, StructType}
 import org.apache.spark.storage.StorageLevel
 
 object Loaders {
@@ -90,43 +91,79 @@ object Loaders {
   }
 }
 
-@main
-def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
-  val sparkConf = new SparkConf()
-    .setAppName("similarities-loaders")
-    .setMaster("local[*]")
+object DFImplicits {
+  implicit class ImplicitDataFrameFunctions(df: DataFrame) {
+    val fieldSeparator = "$"
+    val charReplacement = "_"
+    def flattenDataframe(rep: String = fieldSeparator): DataFrame = {
+      def _mkColsFromStrings(names: Seq[String]): Seq[Column] = {
+        val structFieldsNewNames = names.map(_.replace(".", fieldSeparator))
+        (names zip structFieldsNewNames).map(e => col(e._1).as(e._2))
+      }
 
-  implicit val ss = SparkSession.builder
-    .config(sparkConf)
-    .getOrCreate
+      def _flattenDataFrame(df: DataFrame): DataFrame = {
+        val fdf = allStructColumnNames(df.schema.fields)
 
-  val genes = Loaders.loadGenes(inputPathPrefix + "19.04_gene-data.json")
-  genes.write.json(outputPathPrefix + "targets/")
+        if (fdf.isEmpty) {
+          df
+        } else {
+          val ddf = df.select(col("*") +: fdf.flatMap(e => flattenArray(e) ++ flattenStruct(e)): _*)
+            .drop(fdf.map(_.name): _*)
 
-  val diseases = Loaders.loadEFO(inputPathPrefix + "19.04_efo-data.json")
-  diseases.write.json(outputPathPrefix + "diseases/")
+          _flattenDataFrame(ddf)
+        }
+      }
 
-//  val expression = Loaders.loadExpression(inputPathPrefix + "19.04_expression-data.json")
-//  expression.write.parquet(outputPathPrefix + "expression/")
+      def flattenStruct(field: StructField): Seq[Column] = {
+        field.dataType match {
+          case sType: StructType =>
+            val structFields = sType.fields.map(e => (field.name :: e.name :: Nil).mkString("."))
+            _mkColsFromStrings(structFields)
+          case _ => Seq.empty
+        }
+      }
 
-  val evidences = Loaders.loadEvidences(inputPathPrefix + "19.04_evidence-data.json")
-    .repartitionByRange(col("target_id"))
-    .sortWithinPartitions(col("target_id"), col("disease_id"))
+      def flattenArray(field: StructField): Seq[Column] = {
+        field.dataType match {
+          case sType: ArrayType =>
+            sType.elementType match {
+              case asType: StructType =>
+                val structFields = asType.fields.map(e => (field.name :: e.name :: Nil).mkString("."))
+                _mkColsFromStrings(structFields)
+            }
+          case _ => Seq.empty
+        }
+      }
 
-  val associations = Loaders.loadAssociations(inputPathPrefix + "19.04_association-data.json")
-    .repartitionByRange(col("target_id"))
-    .sortWithinPartitions(col("target_id"), col("disease_id"))
+      def allStructColumnNames(xs: Seq[StructField]): Seq[StructField] =
+        xs.filter(_.dataType match {
+          case _: StructType => true
+          case sArray: ArrayType =>
+            sArray.elementType match {
+              case _: StructType => true
+              case _ => false
+            }
+          case _ => false
+        })
 
-  val assocsEvs = associations
-    .join(evidences, Seq("target_id", "disease_id"), "inner")
+      _flattenDataFrame(df)
+    }
 
-  val assocsEvsGenes = assocsEvs
-    .join(genes, Seq("target_id"), "inner")
+    def fixColumnNames(rep: String = charReplacement): DataFrame = {
+      val fNames = df.schema.fields.map(_.name)
+      fNames.foldLeft(df)((d, name) => d.withColumnRenamed(name, name
+        .replace(" ", rep)
+        .replace("-", rep)))
+    }
+  }
+}
 
-  val assocsEvsGenesEfos = assocsEvsGenes
-    .join(diseases, Seq("disease_id"), "inner")
+object Functions {
+  def saveSchemaTo(df: DataFrame, filename: File): Unit =
+    filename < df.schema.json
 
-  assocsEvsGenesEfos.write.json(outputPathPrefix + "ot_data/")
-
-  outputPathPrefix / "schema.json" < assocsEvsGenesEfos.schema.json
+  def loadSchemaFrom(filename: String): StructType = {
+    val lines = filename.toFile.contentAsString
+    DataType.fromJson(lines).asInstanceOf[StructType]
+  }
 }
