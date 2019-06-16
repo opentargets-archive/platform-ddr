@@ -77,7 +77,7 @@ object Appliers {
 }
 
 @main
-def main(inputPathPrefix: String, jsonSchemaFilename: String): Unit = {
+def main(inputPathPrefix: String, outputPathPrefix: String, jsonSchemaFilename: String): Unit = {
   val sparkConf = new SparkConf()
     .setAppName("similarities-loaders")
     .setMaster("local[*]")
@@ -91,7 +91,7 @@ def main(inputPathPrefix: String, jsonSchemaFilename: String): Unit = {
   val esr1 = ss.read.schema(newSchema).json(inputPathPrefix)
 
   Appliers.flattenDataframe(esr1)
-    .write.json("esr1_flatten/")
+    .write.json(outputPathPrefix)
 
 //  val schema = Loaders.generateOTDataSchema(inputPathPrefix)
 //  println(schema.json)

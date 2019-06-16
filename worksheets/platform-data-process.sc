@@ -3,6 +3,7 @@ import $ivy.`org.apache.spark::spark-core:2.4.3`
 import $ivy.`org.apache.spark::spark-sql:2.4.3`
 
 import better.files._
+import better.files.Dsl._
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql._
