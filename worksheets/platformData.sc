@@ -80,14 +80,14 @@ object Loaders {
   def loadEvidences(path: String)(implicit ss: SparkSession): DataFrame = {
     val evidences = ss.read.json(path)
     evidences
+      .withColumnRenamed("sourceID", "datasource")
+      .withColumnRenamed("type", "datatype")
+      .withColumn("target_id", col("target.id"))
+      .withColumn("disease_id", col("disease.id"))
       .drop("private", "validated_against_schema_version")
-      .selectExpr("target.id as target_id", "disease.id as disease_id",
-        "literature.references as evs_literature_ref", "scores.association_score as evs_score",
-        "unique_association_fields as evs_unique_field")
-      .groupBy(col("target_id"), col("disease_id"))
-      .agg(collect_list(col("evs_literature_ref")).as("evs_literature_refs"),
-        collect_list(col("evs_score")).as("evs_scores"),
-        collect_list(col("evs_unique_field")).as("evs_unique_fields"))
+      // scores$association_score
+      // datasource
+      // datatype
   }
 }
 
