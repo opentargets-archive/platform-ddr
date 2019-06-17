@@ -2,6 +2,12 @@ import $ivy.`com.github.pathikrit::better-files:3.8.0`
 import $ivy.`org.apache.spark::spark-core:2.4.3`
 import $ivy.`org.apache.spark::spark-sql:2.4.3`
 
+import $ivy.`io.circe::circe-core:0.11.1`
+import $ivy.`io.circe::circe-generic:0.11.1`
+import $ivy.`io.circe::circe-parser:0.11.1`
+
+import $ivy.`org.scalatra.scalate::scalate-core:1.9.4`
+
 import better.files._
 import better.files.Dsl._
 import org.apache.spark.SparkConf
@@ -9,6 +15,9 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql._
 import org.apache.spark.sql.types.{ArrayType, DataType, StructField, StructType}
 import org.apache.spark.storage.StorageLevel
+
+import io.circe._
+import io.circe.parser._
 
 object Loaders {
   /** Load efo data from efo index dump so this allows us
@@ -84,7 +93,7 @@ object Loaders {
       .withColumnRenamed("type", "datatype")
       .withColumn("target_id", col("target.id"))
       .withColumn("disease_id", col("disease.id"))
-      .drop("private", "validated_against_schema_version")
+      .selectExpr("datasource", "datatype", "scores", "evidence", "target_id", "disease_id")
       // scores$association_score
       // datasource
       // datatype
@@ -166,4 +175,18 @@ object Functions {
     val lines = filename.toFile.contentAsString
     DataType.fromJson(lines).asInstanceOf[StructType]
   }
+}
+
+object SchemaConverter {
+  val tableTemplate =
+    """
+      |
+    """.stripMargin
+
+  private def parseString(schema: String): Option[String] = {
+    parse(schema)
+  }
+  def apply(schema: String): Option[String] = None
+
+  def apply(schema: Json): Option[String] = None
 }

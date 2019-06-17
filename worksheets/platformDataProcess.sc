@@ -18,6 +18,7 @@ import platformData.Loaders
 @main
 def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
   val sparkConf = new SparkConf()
+    .set("spark.driver.maxResultSize", "0")
     .setAppName("similarities-loaders")
     .setMaster("local[*]")
 
@@ -28,16 +29,16 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
   val genes = Loaders.loadGenes(inputPathPrefix + "19.04_gene-data.json")
     .flattenDataframe()
     .fixColumnNames()
-    .persist
   genes.write.json(outputPathPrefix + "targets/")
   Functions.saveSchemaTo(genes, outputPathPrefix / "targets" / "schema.json")
+  genes.printSchema()
 
   val diseases = Loaders.loadEFO(inputPathPrefix + "19.04_efo-data.json")
     .flattenDataframe()
     .fixColumnNames()
-    .persist
   diseases.write.json(outputPathPrefix + "diseases/")
   Functions.saveSchemaTo(diseases, outputPathPrefix / "diseases" / "schema.json")
+  diseases.printSchema()
 
 //  val expression = Loaders.loadExpression(inputPathPrefix + "19.04_expression-data.json")
 //  expression.write.parquet(outputPathPrefix + "expression/")
@@ -47,14 +48,16 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
     .fixColumnNames()
     .repartitionByRange(col("target_id"))
     .sortWithinPartitions(col("target_id"), col("disease_id"))
-    .persist
 
   val evidencesWithGenesEfos = evidences
     .join(genes, Seq("target_id"), "inner")
+    .repartitionByRange(col("disease_id"))
+    .sortWithinPartitions(col("disease_id"), col("target_id"))
     .join(diseases, Seq("disease_id"), "inner")
 
   evidencesWithGenesEfos.write.json(outputPathPrefix + "evidences/")
   Functions.saveSchemaTo(evidencesWithGenesEfos, outputPathPrefix / "evidences" / "schema.json")
+  evidencesWithGenesEfos.printSchema()
 
   val associations = Loaders.loadAssociations(inputPathPrefix + "19.04_association-data.json")
     .flattenDataframe()
@@ -82,4 +85,5 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
     .json(outputPathPrefix + "associations/")
 
   Functions.saveSchemaTo(assocsEvsGenesEfos, outputPathPrefix / "associations" / "schema.json")
+  assocsEvsGenesEfos.printSchema()
 }
