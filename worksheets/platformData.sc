@@ -1,23 +1,16 @@
+import $ivy.`com.dongxiguo::fastring:1.0.0`
 import $ivy.`com.github.pathikrit::better-files:3.8.0`
+import $ivy.`com.typesafe.play::play-json:2.7.3`
+import $ivy.`com.typesafe:config:1.3.4`
 import $ivy.`org.apache.spark::spark-core:2.4.3`
+import $ivy.`org.apache.spark::spark-mllib:2.4.3`
 import $ivy.`org.apache.spark::spark-sql:2.4.3`
-
-import $ivy.`io.circe::circe-core:0.11.1`
-import $ivy.`io.circe::circe-generic:0.11.1`
-import $ivy.`io.circe::circe-parser:0.11.1`
-
-import $ivy.`org.scalatra.scalate::scalate-core:1.9.4`
-
-import better.files._
 import better.files.Dsl._
-import org.apache.spark.SparkConf
-import org.apache.spark.sql.functions._
+import better.files._
 import org.apache.spark.sql._
-import org.apache.spark.sql.types.{ArrayType, DataType, StructField, StructType}
-import org.apache.spark.storage.StorageLevel
-
-import io.circe._
-import io.circe.parser._
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types._
+import play.api.libs.json._
 
 object Loaders {
   /** Load efo data from efo index dump so this allows us
@@ -178,15 +171,43 @@ object Functions {
 }
 
 object SchemaConverter {
-  val tableTemplate =
-    """
-      |
-    """.stripMargin
-
-  private def parseString(schema: String): Option[String] = {
-    parse(schema)
+  private def seqFieldsFromJSON(json: JsValue): Seq[String] = {
+    def fieldToString(obj: JsValue): String = {
+      val name = (obj \ "name").as[String]
+      name.replace("$", "__") + " Nullable(String)"
+    }
+    val fields = (json \ "fields").get
+    fields match {
+      case JsArray(value) => value.map(fieldToString)
+      case _ => Seq.empty
+    }
+//    json match {
+//    case JsObject(fields) => fields.keys ++ fields.values.flatMap(allKeys)
+//    case JsArray(as) => as.flatMap(allKeys)
+//    case _ => Seq.empty[String]
   }
-  def apply(schema: String): Option[String] = None
 
-  def apply(schema: Json): Option[String] = None
+  def fromString(schema: Option[String]): String => Option[String] = {
+    val jo = Option(Json.parse(schema.getOrElse("")))
+    apply(jo)
+  }
+
+  def apply(schema: Option[JsValue])(tableName: String): Option[String] = {
+    schema.map(jo => {
+      val tableTemplate =
+        """
+          |create table if not exists %s
+          |%s
+          |engine = Log;
+        """.stripMargin
+
+        tableTemplate.format(tableName, seqFieldsFromJSON(jo).mkString("(\n", ",\n", ")"))
+    })
+  }
+}
+
+@main
+def main(schemaFilename: String): Unit = {
+  val text = Option(schemaFilename.toFile.contentAsString)
+  println(SchemaConverter.fromString(text)("table1"))
 }

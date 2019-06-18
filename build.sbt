@@ -12,7 +12,7 @@ lazy val root = (project in file("."))
   .settings(
     inThisBuild(List(
       organization := "io.opentargets",
-      scalaVersion := "2.11.12",
+      scalaVersion := "2.12.8",
       version      := "0.1.0"
     )),
     name := "io-opentargets-platform-ddr",
@@ -30,6 +30,7 @@ lazy val root = (project in file("."))
     libraryDependencies += scalaLoggingDep,
     libraryDependencies += scalaLogging,
     libraryDependencies += ammonite,
+    libraryDependencies ++= ammoniteDeps,
 
     testFrameworks += new TestFramework("minitest.runner.Framework"),
 
