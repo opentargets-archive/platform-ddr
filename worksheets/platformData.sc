@@ -21,7 +21,7 @@ object Loaders {
     val efos = ss.read.json(path)
       .withColumn("disease_id", stripEfoID(col("code")))
       .withColumn("path_code", genAncestors(col("path_codes")))
-      .drop("paths", "private", "_private")
+      .drop("paths", "private", "_private", "path")
 
     efos
       .repartitionByRange(col("disease_id"))
@@ -139,17 +139,19 @@ object DFImplicits {
       }
 
       def flattenArray(parent: Seq[String], fType: ArrayType, arrayLevel: Int): Seq[Column] = {
-        if (arrayLevel > 1) {
-          mkColsFromStrings(Seq(parent.filter(_.length > 0).mkString(".")), arrayLevel)
-        } else {
-          fType.elementType match {
-            case sType: StructType => flattenStruct(parent, sType, arrayLevel)
-            case aType: ArrayType => flattenArray(parent, aType, arrayLevel + 1)
-            case _ =>
+        fType.elementType match {
+          case sType: StructType =>
+            if (arrayLevel > 1) {
               mkColsFromStrings(Seq(parent.filter(_.length > 0).mkString(".")), arrayLevel)
-          }
+            } else {
+              flattenStruct(parent, sType, arrayLevel)
+            }
+          case aType: ArrayType => flattenArray(parent, aType, arrayLevel + 1)
+          case _ =>
+            mkColsFromStrings(Seq(parent.filter(_.length > 0).mkString(".")), arrayLevel)
         }
       }
+
       _flattenDataFrame(df)
     }
 
@@ -177,15 +179,16 @@ object Functions {
 object SchemaConverter {
   private def struct2SQL(struct: StructType): Seq[String] = {
     def fCast(sf: DataType): String = {
+      // TODO esto tiene que ser programado mejor es un hack lo de nullable
       sf match {
-        case _: BooleanType => "UInt8"
-        case _: IntegerType => "Int32"
-        case _: LongType => "Int64"
-        case _: FloatType => "Float32"
-        case _: DoubleType => "Float64"
-        case _: StringType => "String"
-        case s: StructType => s.fields.map(f => s"Nullable(${fCast(f.dataType)})").mkString("Tuple(", ",", ")")
-        case l: ArrayType => s"Nullable(${fCast(l.elementType)})".mkString("Array(", "", ")")
+        case _: BooleanType => "Nullable(UInt8)"
+        case _: IntegerType => "Nullable(Int32)"
+        case _: LongType => "Nullable(Int64)"
+        case _: FloatType => "Nullable(Float32)"
+        case _: DoubleType => "Nullable(Float64)"
+        case _: StringType => "Nullable(String)"
+        case s: StructType => s.fields.map(f => fCast(f.dataType)).mkString("Tuple(", ",", ")")
+        case l: ArrayType => fCast(l.elementType).mkString("Array(", "", ")")
         case _ => "UnsupportedType"
       }
     }
@@ -197,11 +200,7 @@ object SchemaConverter {
           case _ => s"$data default []"
         }
 
-        case _ => if (sf.nullable) {
-          s"Nullable($data)"
-        } else {
-          data
-        }
+        case _ => data
       }
     }
 
