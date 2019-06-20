@@ -39,7 +39,8 @@ object Loaders {
       .repartitionByRange(col("target_id"))
       .sortWithinPartitions(col("target_id"))
       .selectExpr("*", "_private.facets.*", "tractability.*")
-      .drop("drugbank", "uniprot", "pfam", "reactome", "_private", "ortholog", "tractability")
+      .drop("drugbank", "uniprot", "pfam", "reactome", "_private", "ortholog", "tractability",
+        "mouse_phenotypes")
   }
 
   /** Load expression data index dump and exploding the tissues vector so
@@ -138,14 +139,17 @@ object DFImplicits {
       }
 
       def flattenArray(parent: Seq[String], fType: ArrayType, arrayLevel: Int): Seq[Column] = {
-        fType.elementType match {
-          case sType: StructType => flattenStruct(parent, sType, arrayLevel)
-          case aType: ArrayType => flattenArray(parent, aType, arrayLevel + 1)
-          case _ =>
-            mkColsFromStrings(Seq(parent.filter(_.length > 0).mkString(".")), arrayLevel)
+        if (arrayLevel > 1) {
+          mkColsFromStrings(Seq(parent.filter(_.length > 0).mkString(".")), arrayLevel)
+        } else {
+          fType.elementType match {
+            case sType: StructType => flattenStruct(parent, sType, arrayLevel)
+            case aType: ArrayType => flattenArray(parent, aType, arrayLevel + 1)
+            case _ =>
+              mkColsFromStrings(Seq(parent.filter(_.length > 0).mkString(".")), arrayLevel)
+          }
         }
       }
-
       _flattenDataFrame(df)
     }
 
@@ -159,8 +163,10 @@ object DFImplicits {
 }
 
 object Functions {
-  def saveSchemaTo(df: DataFrame, filename: File): Unit =
-    filename < df.schema.json
+  def saveSchemaTo(df: DataFrame, jsonFile: File, sqlFile: File, tableName: String): Unit = {
+    jsonFile < df.schema.json
+    sqlFile < SchemaConverter(Some(df.schema))(tableName).get
+  }
 
   def loadSchemaFrom(filename: String): Option[StructType] = {
     val lines = filename.toFile.contentAsString

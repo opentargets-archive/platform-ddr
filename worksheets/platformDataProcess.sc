@@ -32,21 +32,24 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
   genes.printSchema()
 
   genes.write.json(outputPathPrefix + "targets/")
-  Functions.saveSchemaTo(genes, outputPathPrefix / "targets" / "schema.json")
+  Functions.saveSchemaTo(genes, outputPathPrefix / "targets" / "schema.json",
+    outputPathPrefix / "targets" / "schema.sql", "ot.targets")
   genes.printSchema()
 
   val diseases = Loaders.loadEFO(inputPathPrefix + "19.04_efo-data.json")
     .flattenDataframe()
     .fixColumnNames()
   diseases.write.json(outputPathPrefix + "diseases/")
-  Functions.saveSchemaTo(diseases, outputPathPrefix / "diseases" / "schema.json")
+  Functions.saveSchemaTo(diseases, outputPathPrefix / "diseases" / "schema.json",
+    outputPathPrefix / "diseases" / "schema.sql", "ot.diseases")
   diseases.printSchema()
 
   val expression = Loaders.loadExpression(inputPathPrefix + "19.04_expression-data.json")
     .flattenDataframe()
     .fixColumnNames()
   expression.write.json(outputPathPrefix + "expression/")
-  Functions.saveSchemaTo(expression, outputPathPrefix / "expression" / "schema.json")
+  Functions.saveSchemaTo(expression, outputPathPrefix / "expression" / "schema.json",
+    outputPathPrefix / "expression" / "schema.sql", "ot.expression")
   expression.printSchema()
 
   val evidences = Loaders.loadEvidences(inputPathPrefix + "19.04_evidence-data.json")
@@ -62,7 +65,8 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
     .join(diseases, Seq("disease_id"), "inner")
 
   evidencesWithGenesEfos.write.json(outputPathPrefix + "evidences/")
-  Functions.saveSchemaTo(evidencesWithGenesEfos, outputPathPrefix / "evidences" / "schema.json")
+  Functions.saveSchemaTo(evidencesWithGenesEfos, outputPathPrefix / "evidences" / "schema.json",
+    outputPathPrefix / "evidences" / "schema.sql", "ot.evidences")
   evidencesWithGenesEfos.printSchema()
 
   val associations = Loaders.loadAssociations(inputPathPrefix + "19.04_association-data.json")
@@ -73,7 +77,7 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
 
   val aggEvidences = evidences.groupBy(col("target_id"), col("disease_id"))
     .agg(collect_list(col("datasource")).as("evs_datasources"),
-      collect_list(col("scores$association_score")).as("evs_scores"))
+      collect_list(col("scores__association_score")).as("evs_scores"))
 
   val assocsEvs = associations
     .join(aggEvidences, Seq("target_id", "disease_id"), "inner")
@@ -90,6 +94,7 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
     .write
     .json(outputPathPrefix + "associations/")
 
-  Functions.saveSchemaTo(assocsEvsGenesEfos, outputPathPrefix / "associations" / "schema.json")
+  Functions.saveSchemaTo(assocsEvsGenesEfos, outputPathPrefix / "associations" / "schema.json",
+    outputPathPrefix / "associations" / "schema.json", "ot.associations")
   assocsEvsGenesEfos.printSchema()
 }
