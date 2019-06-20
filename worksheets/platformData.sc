@@ -1,6 +1,4 @@
-import $ivy.`com.dongxiguo::fastring:1.0.0`
 import $ivy.`com.github.pathikrit::better-files:3.8.0`
-import $ivy.`com.typesafe.play::play-json:2.7.3`
 import $ivy.`com.typesafe:config:1.3.4`
 import $ivy.`org.apache.spark::spark-core:2.4.3`
 import $ivy.`org.apache.spark::spark-mllib:2.4.3`
@@ -10,7 +8,6 @@ import better.files._
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
-import play.api.libs.json._
 
 object Loaders {
   /** Load efo data from efo index dump so this allows us
@@ -24,7 +21,7 @@ object Loaders {
     val efos = ss.read.json(path)
       .withColumn("disease_id", stripEfoID(col("code")))
       .withColumn("path_code", genAncestors(col("path_codes")))
-      .drop("paths")
+      .drop("paths", "private", "_private")
 
     efos
       .repartitionByRange(col("disease_id"))
@@ -86,67 +83,66 @@ object Loaders {
       .withColumnRenamed("type", "datatype")
       .withColumn("target_id", col("target.id"))
       .withColumn("disease_id", col("disease.id"))
+      .drop("_private", "private")
       .selectExpr("datasource", "datatype", "scores", "evidence", "target_id", "disease_id")
-      // scores$association_score
-      // datasource
-      // datatype
   }
 }
 
 object DFImplicits {
   implicit class ImplicitDataFrameFunctions(df: DataFrame) {
-    val fieldSeparator = "$"
+    val fieldSeparator = "__"
     val charReplacement = "_"
+
     def flattenDataframe(rep: String = fieldSeparator): DataFrame = {
-      def _mkColsFromStrings(names: Seq[String]): Seq[Column] = {
+
+      def mkColsFromStrings(names: Seq[String], nLevel: Int): Seq[Column] = {
         val structFieldsNewNames = names.map(_.replace(".", fieldSeparator))
-        (names zip structFieldsNewNames).map(e => col(e._1).as(e._2))
+        val cols = (names zip structFieldsNewNames).map(e => {
+          if (e._1.contains(".")) {
+            if (nLevel >= 2)
+              exp(s"to_json(${e._1})").as(e._2)
+            else
+              col(e._1).as(e._2)
+          } else {
+            col(e._1)
+          }
+        })
+
+        cols.foreach(println)
+        cols
       }
 
       def _flattenDataFrame(df: DataFrame): DataFrame = {
-        val fdf = allStructColumnNames(df.schema.fields)
-
-        if (fdf.isEmpty) {
-          df
-        } else {
-          val ddf = df.select(col("*") +: fdf.flatMap(e => flattenArray(e) ++ flattenStruct(e)): _*)
-            .drop(fdf.map(_.name): _*)
-
-          _flattenDataFrame(ddf)
-        }
-      }
-
-      def flattenStruct(field: StructField): Seq[Column] = {
-        field.dataType match {
-          case sType: StructType =>
-            val structFields = sType.fields.map(e => (field.name :: e.name :: Nil).mkString("."))
-            _mkColsFromStrings(structFields)
-          case _ => Seq.empty
-        }
-      }
-
-      def flattenArray(field: StructField): Seq[Column] = {
-        field.dataType match {
-          case sType: ArrayType =>
-            sType.elementType match {
-              case asType: StructType =>
-                val structFields = asType.fields.map(e => (field.name :: e.name :: Nil).mkString("."))
-                _mkColsFromStrings(structFields)
-            }
-          case _ => Seq.empty
-        }
-      }
-
-      def allStructColumnNames(xs: Seq[StructField]): Seq[StructField] =
-        xs.filter(_.dataType match {
-          case _: StructType => true
-          case sArray: ArrayType =>
-            sArray.elementType match {
-              case _: StructType => true
-              case _ => false
-            }
-          case _ => false
+        val fields = df.schema.fields.flatMap(e => e.dataType match {
+          case st: StructType => flattenStruct(e.name :: Nil, st, 0)
+          case at: ArrayType => flattenArray(e.name :: Nil, at, 1)
+          case _ => mkColsFromStrings(Seq(e.name), 0)
         })
+
+        val ddf = df.select(fields: _*)
+
+        _flattenDataFrame(ddf)
+      }
+
+      // TODO TERMINAR LA FUNCION RETORNA COLUMNA Y NO AL FINAL
+      def flattenStruct(parent: Seq[String], struct: StructType, arrayLevel: Int): Seq[Column] =
+        struct.fields.flatMap(e => {
+          e.dataType match {
+            case st: StructType => flattenStruct(parent :+ e.name, st, arrayLevel)
+            case at: ArrayType => flattenArray(parent :+ e.name, at, arrayLevel + 1)
+            case _ =>
+              mkColsFromStrings(Seq((parent :+ e.name).filter(_.length > 0).mkString(".")), arrayLevel)
+          }
+        })
+
+      def flattenArray(parent: Seq[String], fType: ArrayType, arrayLevel: Int): Seq[Column] = {
+        fType.elementType match {
+          case sType: StructType => flattenStruct(parent, sType, arrayLevel)
+          case aType: ArrayType => flattenArray(parent, aType, arrayLevel + 1)
+          case _ =>
+            mkColsFromStrings(Seq(parent.filter(_.length > 0).mkString(".")), arrayLevel)
+        }
+      }
 
       _flattenDataFrame(df)
     }
@@ -164,35 +160,49 @@ object Functions {
   def saveSchemaTo(df: DataFrame, filename: File): Unit =
     filename < df.schema.json
 
-  def loadSchemaFrom(filename: String): StructType = {
+  def loadSchemaFrom(filename: String): Option[StructType] = {
     val lines = filename.toFile.contentAsString
-    DataType.fromJson(lines).asInstanceOf[StructType]
+    Option(DataType.fromJson(lines).asInstanceOf[StructType])
   }
 }
 
 object SchemaConverter {
-  private def seqFieldsFromJSON(json: JsValue): Seq[String] = {
-    def fieldToString(obj: JsValue): String = {
-      val name = (obj \ "name").as[String]
-      name.replace("$", "__") + " Nullable(String)"
+  private def struct2SQL(struct: StructType): Seq[String] = {
+    def fCast(sf: DataType): String = {
+      sf match {
+        case _: BooleanType => "UInt8"
+        case _: IntegerType => "Int32"
+        case _: LongType => "Int64"
+        case _: FloatType => "Float32"
+        case _: DoubleType => "Float64"
+        case _: StringType => "String"
+        case s: StructType => s.fields.map(f => fCast(f.dataType)).mkString("Tuple(", ",", ")")
+        case l: ArrayType => fCast(l.elementType).mkString("Array(", "", ")")
+        case _ => "UnsupportedType"
+      }
     }
-    val fields = (json \ "fields").get
-    fields match {
-      case JsArray(value) => value.map(fieldToString)
-      case _ => Seq.empty
+
+    def metaCast(sf: StructField, data: String): String = {
+      sf.dataType match {
+        case a: ArrayType => a.elementType match {
+          case _: ArrayType => s"${data} default [[]]"
+          case _ => s"${data} default []"
+        }
+
+        case _ => if (sf.nullable) {
+          s"Nullable(${data})"
+        } else {
+          data
+        }
+      }
     }
-//    json match {
-//    case JsObject(fields) => fields.keys ++ fields.values.flatMap(allKeys)
-//    case JsArray(as) => as.flatMap(allKeys)
-//    case _ => Seq.empty[String]
+
+    struct.fields.map(st => {
+      "`" + st.name.replace("$", "__") + "` " + metaCast(st, fCast(st.dataType))
+    })
   }
 
-  def fromString(schema: Option[String]): String => Option[String] = {
-    val jo = Option(Json.parse(schema.getOrElse("")))
-    apply(jo)
-  }
-
-  def apply(schema: Option[JsValue])(tableName: String): Option[String] = {
+  def apply(schema: Option[StructType])(tableName: String): Option[String] = {
     schema.map(jo => {
       val tableTemplate =
         """
@@ -201,13 +211,13 @@ object SchemaConverter {
           |engine = Log;
         """.stripMargin
 
-        tableTemplate.format(tableName, seqFieldsFromJSON(jo).mkString("(\n", ",\n", ")"))
+        tableTemplate.format(tableName, struct2SQL(jo).mkString("(\n", ",\n", ")"))
     })
   }
 }
 
 @main
-def main(schemaFilename: String): Unit = {
-  val text = Option(schemaFilename.toFile.contentAsString)
-  println(SchemaConverter.fromString(text)("table1"))
+def main(schemaFilename: String, tableName: String): Unit = {
+  val schema = Functions.loadSchemaFrom(schemaFilename)
+  println(SchemaConverter(schema)(tableName).get)
 }
