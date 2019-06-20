@@ -99,8 +99,8 @@ object DFImplicits {
         val structFieldsNewNames = names.map(_.replace(".", fieldSeparator))
         val cols = (names zip structFieldsNewNames).map(e => {
           if (e._1.contains(".")) {
-            if (nLevel >= 2)
-              exp(s"to_json(${e._1})").as(e._2)
+            if (nLevel > 1)
+              to_json(col(e._1)).as(e._2 + "_j")
             else
               col(e._1).as(e._2)
           } else {
@@ -119,20 +119,23 @@ object DFImplicits {
           case _ => mkColsFromStrings(Seq(e.name), 0)
         })
 
-        val ddf = df.select(fields: _*)
-
-        _flattenDataFrame(ddf)
+        df.select(fields: _*)
       }
 
-      def flattenStruct(parent: Seq[String], struct: StructType, arrayLevel: Int): Seq[Column] =
-        struct.fields.flatMap(e => {
-          e.dataType match {
-            case st: StructType => flattenStruct(parent :+ e.name, st, arrayLevel)
-            case at: ArrayType => flattenArray(parent :+ e.name, at, arrayLevel + 1)
-            case _ =>
-              mkColsFromStrings(Seq((parent :+ e.name).filter(_.length > 0).mkString(".")), arrayLevel)
-          }
-        })
+      def flattenStruct(parent: Seq[String], struct: StructType, arrayLevel: Int): Seq[Column] = {
+        if (arrayLevel > 1) {
+          mkColsFromStrings(Seq(parent.filter(_.length > 0).mkString(".")), arrayLevel)
+        } else {
+          struct.fields.flatMap(e => {
+            e.dataType match {
+              case st: StructType => flattenStruct(parent :+ e.name, st, arrayLevel)
+              case at: ArrayType => flattenArray(parent :+ e.name, at, arrayLevel + 1)
+              case _ =>
+                mkColsFromStrings(Seq((parent :+ e.name).filter(_.length > 0).mkString(".")), arrayLevel)
+            }
+          })
+        }
+      }
 
       def flattenArray(parent: Seq[String], fType: ArrayType, arrayLevel: Int): Seq[Column] = {
         fType.elementType match {
@@ -175,8 +178,8 @@ object SchemaConverter {
         case _: FloatType => "Float32"
         case _: DoubleType => "Float64"
         case _: StringType => "String"
-        case s: StructType => s.fields.map(f => fCast(f.dataType)).mkString("Tuple(", ",", ")")
-        case l: ArrayType => fCast(l.elementType).mkString("Array(", "", ")")
+        case s: StructType => s.fields.map(f => s"Nullable(${fCast(f.dataType)})").mkString("Tuple(", ",", ")")
+        case l: ArrayType => s"Nullable(${fCast(l.elementType)})".mkString("Array(", "", ")")
         case _ => "UnsupportedType"
       }
     }
@@ -184,12 +187,12 @@ object SchemaConverter {
     def metaCast(sf: StructField, data: String): String = {
       sf.dataType match {
         case a: ArrayType => a.elementType match {
-          case _: ArrayType => s"${data} default [[]]"
-          case _ => s"${data} default []"
+          case _: ArrayType => s"$data default [[]]"
+          case _ => s"$data default []"
         }
 
         case _ => if (sf.nullable) {
-          s"Nullable(${data})"
+          s"Nullable($data)"
         } else {
           data
         }

@@ -7,6 +7,7 @@ import $ivy.`org.apache.spark::spark-sql:2.4.3`
 import better.files._
 import org.apache.spark.SparkConf
 import org.apache.spark.sql._
+import org.apache.spark.sql.functions._
 import platformData.DFImplicits._
 import platformData.{Functions, Loaders}
 
@@ -34,61 +35,61 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
   Functions.saveSchemaTo(genes, outputPathPrefix / "targets" / "schema.json")
   genes.printSchema()
 
-//  val diseases = Loaders.loadEFO(inputPathPrefix + "19.04_efo-data.json")
-//    .flattenDataframe()
-//    .fixColumnNames()
-//  diseases.write.json(outputPathPrefix + "diseases/")
-//  Functions.saveSchemaTo(diseases, outputPathPrefix / "diseases" / "schema.json")
-//  diseases.printSchema()
-//
-//  val expression = Loaders.loadExpression(inputPathPrefix + "19.04_expression-data.json")
-//    .flattenDataframe()
-//    .fixColumnNames()
-//  expression.write.json(outputPathPrefix + "expression/")
-//  Functions.saveSchemaTo(expression, outputPathPrefix / "expression" / "schema.json")
-//  expression.printSchema()
-//
-//  val evidences = Loaders.loadEvidences(inputPathPrefix + "19.04_evidence-data.json")
-//    .flattenDataframe()
-//    .fixColumnNames()
-//    .repartitionByRange(col("target_id"))
-//    .sortWithinPartitions(col("target_id"), col("disease_id"))
-//
-//  val evidencesWithGenesEfos = evidences
-//    .join(genes, Seq("target_id"), "inner")
-//    .repartitionByRange(col("disease_id"))
-//    .sortWithinPartitions(col("disease_id"), col("target_id"))
-//    .join(diseases, Seq("disease_id"), "inner")
-//
-//  evidencesWithGenesEfos.write.json(outputPathPrefix + "evidences/")
-//  Functions.saveSchemaTo(evidencesWithGenesEfos, outputPathPrefix / "evidences" / "schema.json")
-//  evidencesWithGenesEfos.printSchema()
-//
-//  val associations = Loaders.loadAssociations(inputPathPrefix + "19.04_association-data.json")
-//    .flattenDataframe()
-//    .fixColumnNames()
-//    .repartitionByRange(col("target_id"))
-//    .sortWithinPartitions(col("target_id"), col("disease_id"))
-//
-//  val aggEvidences = evidences.groupBy(col("target_id"), col("disease_id"))
-//    .agg(collect_list(col("datasource")).as("evs_datasources"),
-//      collect_list(col("scores$association_score")).as("evs_scores"))
-//
-//  val assocsEvs = associations
-//    .join(aggEvidences, Seq("target_id", "disease_id"), "inner")
-//
-//  val assocsEvsGenes = assocsEvs
-//    .join(genes, Seq("target_id"), "inner")
-//
-//  val assocsEvsGenesEfos = assocsEvsGenes
-//    .join(diseases, Seq("disease_id"), "inner")
-//    .flattenDataframe()
-//    .fixColumnNames()
-//
-//  assocsEvsGenesEfos
-//    .write
-//    .json(outputPathPrefix + "associations/")
-//
-//  Functions.saveSchemaTo(assocsEvsGenesEfos, outputPathPrefix / "associations" / "schema.json")
-//  assocsEvsGenesEfos.printSchema()
+  val diseases = Loaders.loadEFO(inputPathPrefix + "19.04_efo-data.json")
+    .flattenDataframe()
+    .fixColumnNames()
+  diseases.write.json(outputPathPrefix + "diseases/")
+  Functions.saveSchemaTo(diseases, outputPathPrefix / "diseases" / "schema.json")
+  diseases.printSchema()
+
+  val expression = Loaders.loadExpression(inputPathPrefix + "19.04_expression-data.json")
+    .flattenDataframe()
+    .fixColumnNames()
+  expression.write.json(outputPathPrefix + "expression/")
+  Functions.saveSchemaTo(expression, outputPathPrefix / "expression" / "schema.json")
+  expression.printSchema()
+
+  val evidences = Loaders.loadEvidences(inputPathPrefix + "19.04_evidence-data.json")
+    .flattenDataframe()
+    .fixColumnNames()
+    .repartitionByRange(col("target_id"))
+    .sortWithinPartitions(col("target_id"), col("disease_id"))
+
+  val evidencesWithGenesEfos = evidences
+    .join(genes, Seq("target_id"), "inner")
+    .repartitionByRange(col("disease_id"))
+    .sortWithinPartitions(col("disease_id"), col("target_id"))
+    .join(diseases, Seq("disease_id"), "inner")
+
+  evidencesWithGenesEfos.write.json(outputPathPrefix + "evidences/")
+  Functions.saveSchemaTo(evidencesWithGenesEfos, outputPathPrefix / "evidences" / "schema.json")
+  evidencesWithGenesEfos.printSchema()
+
+  val associations = Loaders.loadAssociations(inputPathPrefix + "19.04_association-data.json")
+    .flattenDataframe()
+    .fixColumnNames()
+    .repartitionByRange(col("target_id"))
+    .sortWithinPartitions(col("target_id"), col("disease_id"))
+
+  val aggEvidences = evidences.groupBy(col("target_id"), col("disease_id"))
+    .agg(collect_list(col("datasource")).as("evs_datasources"),
+      collect_list(col("scores$association_score")).as("evs_scores"))
+
+  val assocsEvs = associations
+    .join(aggEvidences, Seq("target_id", "disease_id"), "inner")
+
+  val assocsEvsGenes = assocsEvs
+    .join(genes, Seq("target_id"), "inner")
+
+  val assocsEvsGenesEfos = assocsEvsGenes
+    .join(diseases, Seq("disease_id"), "inner")
+    .flattenDataframe()
+    .fixColumnNames()
+
+  assocsEvsGenesEfos
+    .write
+    .json(outputPathPrefix + "associations/")
+
+  Functions.saveSchemaTo(assocsEvsGenesEfos, outputPathPrefix / "associations" / "schema.json")
+  assocsEvsGenesEfos.printSchema()
 }
