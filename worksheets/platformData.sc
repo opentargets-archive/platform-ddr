@@ -124,7 +124,6 @@ object DFImplicits {
         _flattenDataFrame(ddf)
       }
 
-      // TODO TERMINAR LA FUNCION RETORNA COLUMNA Y NO AL FINAL
       def flattenStruct(parent: Seq[String], struct: StructType, arrayLevel: Int): Seq[Column] =
         struct.fields.flatMap(e => {
           e.dataType match {
