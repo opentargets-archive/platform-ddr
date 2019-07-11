@@ -19,13 +19,19 @@ object Loaders {
 
     val stripEfoID = udf((code: String) => code.split("/").last)
     val efos = ss.read.json(path)
-      .withColumn("disease_id", stripEfoID(col("code")))
-      .withColumn("path_code", genAncestors(col("path_codes")))
+      .withColumn("disease__id", stripEfoID(col("code")))
+      .withColumn("ancestors", genAncestors(col("path_codes")))
       .drop("paths", "private", "_private", "path")
 
-    efos
-      .repartitionByRange(col("disease_id"))
-      .sortWithinPartitions(col("disease_id"))
+    val descendants = efos
+      .where(size(col("ancestors")) > 0)
+      .withColumn("ancestor", explode(col("ancestors")))
+      // all diseases have an ancestor, at least itself
+      .groupBy("ancestor")
+      .agg(collect_set(col("disease__id")).as("descendants"))
+      .withColumnRenamed("ancestor", "disease__id")
+
+    efos.join(descendants, Seq("disease__id"))
   }
 
   /** Load gene data from gene index dump in order to have a comprehensive list
@@ -35,12 +41,12 @@ object Loaders {
     val genes = ss.read.json(path)
 
     genes
-      .withColumnRenamed("id", "target_id")
-      .repartitionByRange(col("target_id"))
-      .sortWithinPartitions(col("target_id"))
+      .withColumnRenamed("id", "target__id")
+      .repartitionByRange(col("target__id"))
+      .sortWithinPartitions(col("target__id"))
       .selectExpr("*", "_private.facets.*", "tractability.*")
-      .drop("drugbank", "uniprot", "pfam", "reactome", "_private", "ortholog", "tractability",
-        "mouse_phenotypes")
+      // .drop("drugbank", "uniprot", "pfam", "reactome", "_private", "ortholog", "tractability",
+      .drop("drugbank", "_private", "ortholog", "tractability", "mouse_phenotypes", "reactome")
   }
 
   /** Load expression data index dump and exploding the tissues vector so
@@ -51,11 +57,13 @@ object Loaders {
     // val tissueCols = Seq("id", "_tissue.*")
     val tissues = ss.read.json(path)
       // .withColumn("_tissue", explode(col("tissues")))
-      .withColumnRenamed("gene", "target_id")
+      .withColumnRenamed("gene", "target__id")
+      .withColumn("tissue", explode(col("tissues")))
+      .drop("tissues")
 
     tissues
-      .repartitionByRange(col("target_id"))
-      .sortWithinPartitions(col("target_id"))
+      .repartitionByRange(col("target__id"))
+      .sortWithinPartitions(col("target__id"))
   }
 
   /** Load associations from ES index dump and filter by
@@ -67,25 +75,22 @@ object Loaders {
   def loadAssociations(path: String)(implicit ss: SparkSession): DataFrame = {
     val assocs = ss.read.json(path)
       .withColumn("score", col("harmonic-sum.overall"))
-      .withColumn("target_id", col("target.id"))
-      .withColumn("disease_id", col("disease.id"))
       .withColumn("target_name", col("target.gene_info.symbol"))
       .withColumn("disease_name", col("disease.efo_info.label"))
       .withColumn("score_datasource", col("harmonic-sum.datasources"))
       .withColumn("score_datatype", col("harmonic-sum.datatypes"))
-      .drop("private", "_private", "target", "disease", "id")
+      .drop("private", "_private", "id")
     assocs
   }
 
   def loadEvidences(path: String)(implicit ss: SparkSession): DataFrame = {
     val evidences = ss.read.json(path)
     evidences
+        .withColumnRenamed("id", "evs_id")
       .withColumnRenamed("sourceID", "datasource")
       .withColumnRenamed("type", "datatype")
-      .withColumn("target_id", col("target.id"))
-      .withColumn("disease_id", col("disease.id"))
       .drop("_private", "private")
-      .selectExpr("datasource", "datatype", "scores", "evidence", "target_id", "disease_id")
+      .selectExpr("evs_id", "datasource", "datatype", "scores", "evidence", "target", "disease", "unique_association_fields")
   }
 }
 
@@ -165,10 +170,11 @@ object DFImplicits {
 }
 
 object Functions {
-  def saveSchemaTo(df: DataFrame, jsonFile: File, sqlFile: File, tableName: String): Unit = {
-    jsonFile < df.schema.json
-    sqlFile < SchemaConverter(Some(df.schema))(tableName).get
-  }
+  def saveJSONSchemaTo(df: DataFrame, path: File, fileName: String = "schema"): Unit =
+    (path / s"$fileName.json").createIfNotExists(createParents=true) < df.schema.json
+
+  def saveSQLSchemaTo(df: DataFrame, path: File, tableName: String, fileName: String = "schema"): Unit =
+    (path / s"$fileName.sql").createIfNotExists(createParents=true) < SchemaConverter(Some(df.schema))(tableName).get
 
   def loadSchemaFrom(filename: String): Option[StructType] = {
     val lines = filename.toFile.contentAsString

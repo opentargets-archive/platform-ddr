@@ -22,79 +22,60 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
     .config(sparkConf)
     .getOrCreate
 
+  // loading genes, flatten and fix column names
   val geneDF = Loaders.loadGenes(inputPathPrefix + "19.04_gene-data.json")
-  geneDF.printSchema()
+  Functions.saveJSONSchemaTo(geneDF, outputPathPrefix.toFile, "target")
 
   val genes = geneDF
     .flattenDataframe()
     .fixColumnNames()
 
-  genes.printSchema()
-
   genes.write.json(outputPathPrefix + "targets/")
-  Functions.saveSchemaTo(genes, outputPathPrefix / "targets" / "schema.json",
-    outputPathPrefix / "targets" / "schema.sql", "ot.targets")
-  genes.printSchema()
+  Functions.saveJSONSchemaTo(genes, outputPathPrefix / "targets")
+  Functions.saveSQLSchemaTo(genes, outputPathPrefix / "targets", "ot.targets")
 
-  val diseases = Loaders.loadEFO(inputPathPrefix + "19.04_efo-data.json")
+  // loading diseases, flatten and fix column names
+  val diseaseDF = Loaders.loadEFO(inputPathPrefix + "19.04_efo-data.json")
+  Functions.saveJSONSchemaTo(diseaseDF, outputPathPrefix.toFile, "disease")
+
+  val diseases = diseaseDF
     .flattenDataframe()
     .fixColumnNames()
-  diseases.write.json(outputPathPrefix + "diseases/")
-  Functions.saveSchemaTo(diseases, outputPathPrefix / "diseases" / "schema.json",
-    outputPathPrefix / "diseases" / "schema.sql", "ot.diseases")
-  diseases.printSchema()
 
-  val expression = Loaders.loadExpression(inputPathPrefix + "19.04_expression-data.json")
+  diseases.write.json(outputPathPrefix + "diseases/")
+  Functions.saveJSONSchemaTo(diseases, outputPathPrefix / "diseases")
+  Functions.saveSQLSchemaTo(diseases, outputPathPrefix / "diseases", "ot.diseases")
+
+  val expressionDF = Loaders.loadExpression(inputPathPrefix + "19.04_expression-data.json")
+  Functions.saveJSONSchemaTo(expressionDF, outputPathPrefix.toFile, "expression")
+
+  val expression = expressionDF
     .flattenDataframe()
     .fixColumnNames()
   expression.write.json(outputPathPrefix + "expression/")
-  Functions.saveSchemaTo(expression, outputPathPrefix / "expression" / "schema.json",
-    outputPathPrefix / "expression" / "schema.sql", "ot.expression")
-  expression.printSchema()
+  Functions.saveJSONSchemaTo(expression, outputPathPrefix / "expression")
+  Functions.saveSQLSchemaTo(expression, outputPathPrefix / "expression", "ot.expression")
 
-  val evidences = Loaders.loadEvidences(inputPathPrefix + "19.04_evidence-data.json")
-    .flattenDataframe()
-    .fixColumnNames()
-    .repartitionByRange(col("target_id"))
-    .sortWithinPartitions(col("target_id"), col("disease_id"))
+  val pureEvidences = Loaders.loadEvidences(inputPathPrefix + "19.04_evidence-data.json")
+  Functions.saveJSONSchemaTo(pureEvidences, outputPathPrefix.toFile, "evidence")
 
-  val evidencesWithGenesEfos = evidences
-    .join(genes, Seq("target_id"), "inner")
-    .repartitionByRange(col("disease_id"))
-    .sortWithinPartitions(col("disease_id"), col("target_id"))
-    .join(diseases, Seq("disease_id"), "inner")
-
-  evidencesWithGenesEfos.write.json(outputPathPrefix + "evidences/")
-  Functions.saveSchemaTo(evidencesWithGenesEfos, outputPathPrefix / "evidences" / "schema.json",
-    outputPathPrefix / "evidences" / "schema.sql", "ot.evidences")
-  evidencesWithGenesEfos.printSchema()
-
-  val associations = Loaders.loadAssociations(inputPathPrefix + "19.04_association-data.json")
-    .flattenDataframe()
-    .fixColumnNames()
-    .repartitionByRange(col("target_id"))
-    .sortWithinPartitions(col("target_id"), col("disease_id"))
-
-  val aggEvidences = evidences.groupBy(col("target_id"), col("disease_id"))
-    .agg(collect_list(col("datasource")).as("evs_datasources"),
-      collect_list(col("scores__association_score")).as("evs_scores"))
-
-  val assocsEvs = associations
-    .join(aggEvidences, Seq("target_id", "disease_id"), "inner")
-
-  val assocsEvsGenes = assocsEvs
-    .join(genes, Seq("target_id"), "inner")
-
-  val assocsEvsGenesEfos = assocsEvsGenes
-    .join(diseases, Seq("disease_id"), "inner")
+  val flattenEvs = pureEvidences
     .flattenDataframe()
     .fixColumnNames()
 
-  assocsEvsGenesEfos
-    .write
-    .json(outputPathPrefix + "associations/")
+  val pivotScores = pureEvidences
+      .groupBy(col("evs_id"))
+      .pivot(col("datasource"))
+      .agg(first(col("scores.association_score")))
+      .na.fill(0.0)
 
-  Functions.saveSchemaTo(assocsEvsGenesEfos, outputPathPrefix / "associations" / "schema.json",
-    outputPathPrefix / "associations" / "schema.json", "ot.associations")
-  assocsEvsGenesEfos.printSchema()
+  val zNames = pivotScores.schema.fieldNames.withFilter(_ != "evs_id").map(e => (e, s"ds__$e"))
+  val pScores = zNames.foldLeft(pivotScores)((df , zname) => df.withColumnRenamed(zname._1, zname._2))
+
+  val joinEvs = flattenEvs.join(pScores, Seq("evs_id"))
+      .join(diseases, Seq("disease__id"), "inner")
+
+  joinEvs.write.json(outputPathPrefix + "evidences")
+  Functions.saveJSONSchemaTo(joinEvs, outputPathPrefix / "evidences")
+  Functions.saveSQLSchemaTo(joinEvs, outputPathPrefix / "evidences" , "ot.evidences")
 }
