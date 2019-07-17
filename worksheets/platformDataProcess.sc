@@ -22,6 +22,9 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
     .config(sparkConf)
     .getOrCreate
 
+  val sdb = Loaders.loadStringDB(inputPathPrefix + "9606.protein.links.detailed.v11.0.txt",
+    inputPathPrefix + "9606.protein.info.v11.0.txt")
+
   // loading genes, flatten and fix column names
   val geneDF = Loaders.loadGenes(inputPathPrefix + "19.04_gene-data.json")
   Functions.saveJSONSchemaTo(geneDF, outputPathPrefix.toFile, "target")
@@ -30,9 +33,23 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
     .flattenDataframe()
     .fixColumnNames()
 
-  genes.write.json(outputPathPrefix + "targets/")
-  Functions.saveJSONSchemaTo(genes, outputPathPrefix / "targets")
-  Functions.saveSQLSchemaTo(genes, outputPathPrefix / "targets", "ot.targets")
+  val sym2id = genes.select("approved_symbol", "target__id").cache
+  val sym2idMap = ss.sparkContext.broadcast(sym2id.collect.map(r => (r.getString(0), r.getString(1))).toMap)
+  val mapList = udf((s: Seq[String]) => {
+    s.map(sym2idMap.value.withDefaultValue("")).filter(_.nonEmpty).distinct
+  })
+
+  val geneSym2Id = sdb
+    .join(sym2id, Seq("approved_symbol"), "inner")
+    .drop("approved_symbol")
+    .withColumnRenamed("nodes", "_nodes")
+    .withColumn("nodes", mapList(col("_nodes")))
+
+  val genesWithNodes = genes.join(geneSym2Id, Seq("target__id"), "left_outer")
+
+  genesWithNodes.write.json(outputPathPrefix + "targets/")
+  Functions.saveJSONSchemaTo(genesWithNodes, outputPathPrefix / "targets")
+  Functions.saveSQLSchemaTo(genesWithNodes, outputPathPrefix / "targets", "ot.targets")
 
   // loading diseases, flatten and fix column names
   val diseaseDF = Loaders.loadEFO(inputPathPrefix + "19.04_efo-data.json")

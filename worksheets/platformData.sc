@@ -10,6 +10,49 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 
 object Loaders {
+  /** load string-db datasets using the mappings and the COG data
+    * it needs the protein mapping to symbols gene ids
+    */
+  def loadStringDB(protLinks: String, protInfo: String)(implicit ss: SparkSession): DataFrame = {
+    val prot2Name = ss
+      .read
+      .option("sep", "\t")
+      .option("mode", "DROPMALFORMED")
+      .csv(protInfo)
+      .toDF("pid", "symbol", "protein_size", "annotation")
+      .select("pid", "symbol")
+      .filter(not(col("symbol").startsWith(lit("ENSG"))))
+      .filter(not(col("symbol").startsWith(lit("HGNC:"))))
+      .cache()
+
+    val p2p = ss
+      .read
+      .option("sep", " ")
+      .option("mode", "DROPMALFORMED")
+      .csv(protLinks)
+      .toDF("protein1", "protein2", "neighborhood", "fusion", "cooccurence", "coexpression",
+        "experimental", "database", "textmining", "combined_score")
+      .where(col("coexpression") > 0 and col("combined_score") > 700)
+
+    val links = p2p.join(prot2Name,
+      col("protein1") === col("pid"),
+      "inner")
+      .drop("pid", "protein1")
+      .withColumnRenamed("symbol", "symbol_a")
+      .join(prot2Name,
+        col("protein2") === col("pid"),
+        "inner")
+      .withColumnRenamed("symbol", "symbol_b")
+      .drop("protein2", "pid")
+      .groupBy("symbol_a")
+      .agg(collect_set(col("symbol_b")).as("_stringdb_set"))
+      .withColumn("nodes",array_union(array(col("symbol_a")), col("_stringdb_set")))
+      .drop("_stringdb_set")
+      .withColumnRenamed("symbol_a", "approved_symbol")
+
+    links
+  }
+
   /** Load efo data from efo index dump so this allows us
     * to navegate through the ontology
     */
