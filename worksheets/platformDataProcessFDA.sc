@@ -23,6 +23,9 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
     .config(sparkConf)
     .getOrCreate
 
+  import ss.implicits._
+
+  // the curated drug list we want
   val drugList = ss.read
     .format("csv")
     .option("header", "false")
@@ -38,58 +41,66 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
     .orderBy(col("drug_name"))
     .cache()
 
-  drugList.show(false)
-
+  // load FDA raw lines
   val lines = Loaders.loadFDA(inputPathPrefix)
-//    .sample(0.01)
 
-  //safetyreportid
-  //serious
-  //receivedate
-  //primarysourcecountry
-  //primarysource.qualification as qualification
-  //patient.reaction[].reactionmeddrapt
-  //patient.drug[].medicinalproduct
-  //patient.drug[].openfda.generic_name[]
-  //patient.drug[].openfda.substance_name[]
-  //patient.drug[].activesubstance.activesubstancename
-  //patient.drug[].drugcharacterization
-
-  val fdas = lines.withColumn("reaction", explode(col("patient.reaction")))
+  val fdas = lines.withColumn("_reaction", explode(col("patient.reaction")))
+    // same raction multiple cases
+    .withColumn("reaction", lower(col("_reaction")))
+    // after explode this we will have reaction-drug pairs
     .withColumn("drug", explode(col("patient.drug")))
-    .selectExpr("safetyreportid", "serious", "receivedate", "primarysourcecountry", "qualification", "reaction.reactionmeddrapt as reaction_reactionmeddrapt" ,
-      "drug.medicinalproduct as drug_medicinalproduct", "drug.openfda.generic_name as drug_generic_name_list", "drug.openfda.substance_name as drug_substance_name_list",
+    // just the fields we want as columns
+    .selectExpr("safetyreportid", "serious", "receivedate", "primarysourcecountry",
+      "qualification",
+      "reaction.reactionmeddrapt as reaction_reactionmeddrapt" ,
+      "drug.medicinalproduct as drug_medicinalproduct",
+      "drug.openfda.generic_name as drug_generic_name_list",
+      "drug.openfda.substance_name as drug_substance_name_list",
       "drug.drugcharacterization as drugcharacterization")
-    .drop("patient", "reaction", "drug")
+    // we dont need these columns anymore
+    .drop("patient", "reaction", "drug", "_reaction")
+    // delicated filter which should be looked at FDA API to double check
     .where(col("qualification").isInCollection(Seq("1", "2", "3")) and col("drugcharacterization") === "1")
+    // drug names comes in a large collection of multiple synonyms but it comes spread across multiple fields
     .withColumn("drug_names", array_distinct(array_union(array(col("drug_medicinalproduct")),
       array_union(col("drug_generic_name_list"), col("drug_substance_name_list")))))
-    .withColumn("drug_name", lower(explode(col("drug_names"))))
-    .drop("drug_medicinalproduct", "drug_generic_name_list", "drug_substance_name_list")
+    // the final real drug name
+    .withColumn("_drug_name", explode(col("drug_names")))
+    .withColumn("drug_name", lower(col("_drug_name")))
+    // rubbish out
+    .drop("drug_medicinalproduct", "drug_generic_name_list", "drug_substance_name_list", "_drug_name")
+    // and we will need this processed data later on
     .persist(StorageLevel.DISK_ONLY)
 
+  // total unique report ids count grouped by reaction
   val aggByReactions = fdas.groupBy(col("reaction_reactionmeddrapt"))
     .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_reaction"))
 
+  // total unique report ids count grouped by drug name
   val aggByDrugs = fdas.groupBy(col("drug_name"))
     .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_drug"))
 
+  // total unique report ids
   val uniqReports = fdas.select("safetyreportid").distinct.count
 
+  // per drug-reaction pair
   val doubleAgg = fdas.groupBy(col("drug_name"), col("reaction_reactionmeddrapt"))
     .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids"))
+    .withColumnRenamed("uniq_report_ids", "A")
     .join(aggByDrugs, Seq("drug_name"), "inner")
     .join(aggByReactions, Seq("reaction_reactionmeddrapt"), "inner")
-    .withColumn("C", col("uniq_report_ids_by_drug") - col("uniq_report_ids"))
-    .withColumn("B", col("uniq_report_ids_by_reaction") - col("uniq_report_ids"))
-    .withColumn("D", ((lit(uniqReports) - col("uniq_report_ids_by_drug")) - col("uniq_report_ids_by_reaction")) + col("uniq_report_ids"))
-    .withColumnRenamed("uniq_report_ids", "A")
+    .withColumn("C", col("uniq_report_ids_by_drug") - col("A"))
+    .withColumn("B", col("uniq_report_ids_by_reaction") - col("A"))
+    .withColumn("D", lit(uniqReports) - col("uniq_report_ids_by_drug") - col("uniq_report_ids_by_reaction") + col("A"))
+    .withColumn("aterm", $"A" * (log($"A") - log($"A" + $"B")))
+    .withColumn("cterm", $"C" * (log($"C") - log($"C" + $"D")))
+    .withColumn("acterm", ($"A" + $"C") * (log($"A" + $"C") - log($"A" + $"B" + $"C" + $"D")) )
+    .withColumn("llr", $"aterm" + $"cterm" - $"acterm")
+    // Max_iae (llr_ij) (all ae for a drug)
+    // filter the drugs we want
     .join(drugList, Seq("drug_name"), "inner")
 //    .selectExpr("drug_name", "reaction_reactionmeddrapt", "uniq_report_ids as A", "B", "C", "D")
 
-//  fdas.write.json(outputPathPrefix + "/filtered/")
-//  aggByReactions.write.json(outputPathPrefix + "/uniq_report_ids_by_reactions/")
-//  aggByDrugs.write.json(outputPathPrefix + "/uniq_report_ids_by_reactions/")
   doubleAgg.write.json(outputPathPrefix + "/agg/")
   println(s"uniq reports $uniqReports")
 }
