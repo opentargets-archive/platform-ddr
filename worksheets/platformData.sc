@@ -77,25 +77,6 @@ object Loaders {
     efos.join(descendants, Seq("disease__id"))
   }
 
-  def loadFDA(path: String)(implicit ss: SparkSession): DataFrame = {
-    val fda = ss.read.json(path)
-
-    //safetyreportid
-    //serious
-    //receivedate
-    //primarysourcecountry
-    //primarysource.qualification as qualification
-    //patient.reaction[].reactionmeddrapt
-    //patient.drug[].medicinalproduct
-    //patient.drug[].openfda.generic_name[ ]
-    //patient.drug[].openfda.substance_name[]
-    //patient.drug[].activesubstance.activesubstancename
-    //patient.drug[].drugcharacterization
-
-    val columns = Seq("safetyreportid", "serious", "receivedate", "primarysource.reportercountry as primarysourcecountry", "primarysource.qualification as qualification", "patient")
-
-    fda.selectExpr(columns:_*)
-  }
   /** Load gene data from gene index dump in order to have a comprehensive list
     * of genes with their symbol biotype and name
     */
