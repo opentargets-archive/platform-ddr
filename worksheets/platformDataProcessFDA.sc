@@ -16,18 +16,12 @@ import org.apache.spark.storage.StorageLevel
 
 object Loaders {
   def loadDrugList(path: String)(implicit ss: SparkSession): DataFrame = {
-    val drugList = ss.read
-      .format("csv")
-      .option("header", "false")
-      .option("inferSchema", "true")
-      .option("delimiter","\t")
-      .option("ignoreLeadingWhiteSpace", "true")
-      .option("ignoreTrailingWhiteSpace", "true")
-      .option("mode", "DROPMALFORMED")
-      .csv(path)
-      .toDF("_drug_name")
+    val drugList = ss.read.json(path)
+      .selectExpr("id as chembl_id", "synonyms", "pref_name")
+      .withColumn("drug_names", array_distinct(array_union(array(col("pref_name")), col("synonyms"))))
+      .withColumn("_drug_name", explode(col("drug_names")))
       .withColumn("drug_name", lower(col("_drug_name")))
-      .drop("_drug_name")
+      .select("chembl_id", "drug_name")
       .orderBy(col("drug_name"))
 
     drugList
@@ -60,7 +54,7 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
   import ss.implicits._
 
   // the curated drug list we want
-  val drugList = Loaders.loadDrugList("drug_names.txt").cache()
+  val drugList = Loaders.loadDrugList("/data/jsonl/19.06_drug-data.json").cache()
 
   // load FDA raw lines
   val lines = Loaders.loadFDA(inputPathPrefix)
