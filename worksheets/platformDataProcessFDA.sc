@@ -72,9 +72,9 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
     .selectExpr("safetyreportid", "serious", "receivedate", "primarysourcecountry",
       "qualification",
       "lower(reaction.reactionmeddrapt) as reaction_reactionmeddrapt" ,
-      "lower(drug.medicinalproduct) as drug_medicinalproduct",
-      "drug.openfda.generic_name as drug_generic_name_list",
-      "drug.openfda.substance_name as drug_substance_name_list",
+      "ifnull(lower(drug.medicinalproduct), '') as drug_medicinalproduct",
+      "ifnull(drug.openfda.generic_name, array()) as drug_generic_name_list",
+      "ifnull(drug.openfda.substance_name, array()) as drug_substance_name_list",
       "drug.drugcharacterization as drugcharacterization")
     // we dont need these columns anymore
     .drop("patient", "reaction", "drug", "_reaction")
@@ -100,7 +100,8 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
 
   // total unique report ids count grouped by reaction
   val aggByReactions = fdas.groupBy(col("reaction_reactionmeddrapt"))
-    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_reaction"))
+    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_reaction"),
+      collect_set($"serious").as("serious_set"))
 
   // total unique report ids count grouped by drug name
   val aggByDrugs = fdas.groupBy(col("drug_name"))
