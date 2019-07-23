@@ -41,7 +41,7 @@ object Loaders {
 }
 
 @main
-def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
+def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String): Unit = {
   val sparkConf = new SparkConf()
     .set("spark.driver.maxResultSize", "0")
     .setAppName("similarities-loaders")
@@ -54,7 +54,7 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
   import ss.implicits._
 
   // the curated drug list we want
-  val drugList = Loaders.loadDrugList("/data/jsonl/19.06_drug-data.json").cache()
+  val drugList = Loaders.loadDrugList(drugSetPath).cache()
 
   // load FDA raw lines
   val lines = Loaders.loadFDA(inputPathPrefix)
