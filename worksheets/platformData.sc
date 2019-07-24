@@ -10,6 +10,36 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 
 object Loaders {
+  def loadNetworkDB(ndbPath: String, genesPath: String)(implicit ss: SparkSession): DataFrame = {
+    val p2p = ss.read.json(ndbPath)
+      .selectExpr("interactorA_uniprot_name as A",
+        "interactorB_uniprot_name as B",
+        "mi_score as score")
+
+    val genes = ss.read.json(genesPath)
+      .selectExpr("id",
+        "uniprot_accessions as accessions",
+        "approved_symbol as symbol",
+        "hgnc_id")
+      .withColumn("accession", explode(col("accessions")))
+      .drop("accessions")
+      .orderBy(col("accession"))
+      .cache
+
+    val p2pA = p2p.join(genes, genes("accession") === p2p("A"), "inner")
+      .withColumnRenamed("symbol", "A_symbol")
+      .withColumnRenamed("hgnc_id", "A_hgnc_id")
+      .withColumnRenamed("id", "A_id")
+      .drop("accession")
+
+    p2pA.join(genes, genes("accession") === p2pA("B"), "inner")
+      .withColumnRenamed("symbol", "B_symbol")
+      .withColumnRenamed("hgnc_id", "B_hgnc_id")
+      .withColumnRenamed("id", "B_id")
+      .drop("accession")
+
+  }
+
   /** load string-db datasets using the mappings and the COG data
     * it needs the protein mapping to symbols gene ids
     */
