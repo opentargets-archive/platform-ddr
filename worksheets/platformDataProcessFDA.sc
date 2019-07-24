@@ -18,7 +18,7 @@ object Loaders {
   def loadDrugList(path: String)(implicit ss: SparkSession): DataFrame = {
     val drugList = ss.read.json(path)
       .selectExpr("id as chembl_id", "synonyms", "pref_name")
-      .withColumn("drug_names", array_distinct(array_union(array(col("pref_name")), col("synonyms"))))
+      .withColumn("drug_names", array_distinct(array_union(col("trade_names"),array_union(array(col("pref_name")), col("synonyms")))))
       .withColumn("_drug_name", explode(col("drug_names")))
       .withColumn("drug_name", lower(col("_drug_name")))
       .select("chembl_id", "drug_name")
@@ -68,6 +68,7 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
       "lower(reaction.reactionmeddrapt) as reaction_reactionmeddrapt" ,
       "ifnull(lower(drug.medicinalproduct), '') as drug_medicinalproduct",
       "ifnull(drug.openfda.generic_name, array()) as drug_generic_name_list",
+      "ifnull(drug.openfda.brand_name, array()) as drug_brand_name_list",
       "ifnull(drug.openfda.substance_name, array()) as drug_substance_name_list",
       "drug.drugcharacterization as drugcharacterization")
     // we dont need these columns anymore
@@ -75,8 +76,8 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     // delicated filter which should be looked at FDA API to double check
     .where(col("qualification").isInCollection(Seq("1", "2", "3")) and col("drugcharacterization") === "1")
     // drug names comes in a large collection of multiple synonyms but it comes spread across multiple fields
-    .withColumn("drug_names", array_distinct(array_union(array(col("drug_medicinalproduct")),
-      array_union(col("drug_generic_name_list"), col("drug_substance_name_list")))))
+    .withColumn("drug_names", array_distinct(array_union(col("drug_brand_name_list"), array_union(array(col("drug_medicinalproduct")),
+      array_union(col("drug_generic_name_list"), col("drug_substance_name_list"))))))
     // the final real drug name
     .withColumn("_drug_name", explode(col("drug_names")))
     .withColumn("drug_name", lower(col("_drug_name")))
@@ -85,30 +86,25 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     .where($"drug_name".isNotNull and $"reaction_reactionmeddrapt".isNotNull and
       $"safetyreportid".isNotNull)
     // and we will need this processed data later on
+    .join(drugList, Seq("drug_name"), "inner")
     .persist(StorageLevel.DISK_ONLY)
-
-  // save the example data into a folder for further inspection
-  fdas.where($"drug_name" === "aspirin" and
-    $"reaction_reactionmeddrapt" === "completed suicide")
-    .write.json(outputPathPrefix + "/fdas_for_aspirin_completed_suicide/")
 
   // total unique report ids count grouped by reaction
   val aggByReactions = fdas.groupBy(col("reaction_reactionmeddrapt"))
-    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_reaction"),
-      collect_set($"serious").as("serious_set"))
+    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_reaction"))
 
   // total unique report ids count grouped by drug name
-  val aggByDrugs = fdas.groupBy(col("drug_name"))
+  val aggByDrugs = fdas.groupBy(col("chembl_id"))
     .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_drug"))
 
   // total unique report ids
   val uniqReports = fdas.select("safetyreportid").distinct.count
 
   // per drug-reaction pair
-  val doubleAgg = fdas.groupBy(col("drug_name"), col("reaction_reactionmeddrapt"))
+  val doubleAgg = fdas.groupBy(col("chembl_id"), col("reaction_reactionmeddrapt"))
     .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids"))
     .withColumnRenamed("uniq_report_ids", "A")
-    .join(aggByDrugs, Seq("drug_name"), "inner")
+    .join(aggByDrugs, Seq("chembl_id"), "inner")
     .join(aggByReactions, Seq("reaction_reactionmeddrapt"), "inner")
     .withColumn("C", col("uniq_report_ids_by_drug") - col("A"))
     .withColumn("B", col("uniq_report_ids_by_reaction") - col("A"))
@@ -119,11 +115,10 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     .withColumn("llr", $"aterm" + $"cterm" - $"acterm")
     // Max_iae (llr_ij) (all ae for a drug)
     // filter the drugs we want
-    .join(drugList, Seq("drug_name"), "inner")
 
   fdas.write.json(outputPathPrefix + "/fdas/")
   doubleAgg.write.json(outputPathPrefix + "/agg/")
   doubleAgg
-    .join(fdas, Seq("drug_name", "reaction_reactionmeddrapt"), "inner")
+    .join(fdas, Seq("chembl_id", "reaction_reactionmeddrapt"), "inner")
     .write.json(outputPathPrefix + "/agg_with_fdas/")
 }
