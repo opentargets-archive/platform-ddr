@@ -112,7 +112,7 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     .withColumn("aterm", $"A" * (log($"A") - log($"A" + $"B")))
     .withColumn("cterm", $"C" * (log($"C") - log($"C" + $"D")))
     .withColumn("acterm", ($"A" + $"C") * (log($"A" + $"C") - log($"A" + $"B" + $"C" + $"D")) )
-    .withColumn("llr", $"aterm" + $"cterm" - $"acterm")
+    .withColumn("llr", when($"C" === 0, lit(0.0)).otherwise($"aterm" + $"cterm" - $"acterm"))
     // Max_iae (llr_ij) (all ae for a drug)
     // filter the drugs we want
 
