@@ -17,7 +17,7 @@ import org.apache.spark.storage.StorageLevel
 object Loaders {
   def loadDrugList(path: String)(implicit ss: SparkSession): DataFrame = {
     val drugList = ss.read.json(path)
-      .selectExpr("id as chembl_id", "synonyms", "pref_name")
+      .selectExpr("id as chembl_id", "synonyms", "pref_name", "trade_names")
       .withColumn("drug_names", array_distinct(array_union(col("trade_names"),array_union(array(col("pref_name")), col("synonyms")))))
       .withColumn("_drug_name", explode(col("drug_names")))
       .withColumn("drug_name", lower(col("_drug_name")))
