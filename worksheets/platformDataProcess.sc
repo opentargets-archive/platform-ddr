@@ -27,8 +27,7 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
 
   // loading genes, flatten and fix column names
   val networkDB = Loaders.loadNetworkDBLUT(inputPathPrefix + "protein_pair_interactions.json",
-    inputPathPrefix + "19.04_gene-data.json", 0.45)
-    .drop("scores", "neighbours")
+    inputPathPrefix + "19.04_gene-data.json")
 
   // loading genes, flatten and fix column names
   val geneDF = Loaders.loadGenes(inputPathPrefix + "19.04_gene-data.json")
@@ -39,6 +38,8 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
     .fixColumnNames()
 
   val genesWithNodes = genes.join(networkDB, Seq("target__id"), "left_outer")
+    .withColumn("nodes", when(col("neighbours").isNotNull, array_union(array(col("target__id")), col("neighbours"))).otherwise(array(col("target__id"))))
+      .drop("neighbours")
 
   genesWithNodes.write.json(outputPathPrefix + "targets/")
   Functions.saveJSONSchemaTo(genesWithNodes, outputPathPrefix / "targets")

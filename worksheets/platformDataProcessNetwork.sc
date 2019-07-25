@@ -31,7 +31,7 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
     inputPathPrefix + "19.04_gene-data.json")
 
   val netLUT = Loaders.loadNetworkDBLUT(inputPathPrefix + "protein_pair_interactions.json",
-    inputPathPrefix + "19.04_gene-data.json", 0.45)
+    inputPathPrefix + "19.04_gene-data.json")
 
   networkDB.write.json(outputPathPrefix + "networkDB_unfiltered")
   netLUT.write.json(outputPathPrefix + "networkDBLUT_045")
