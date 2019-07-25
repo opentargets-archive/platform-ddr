@@ -26,11 +26,9 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
     inputPathPrefix + "9606.protein.info.v11.0.txt")
 
   // loading genes, flatten and fix column names
-  val networkDB = Loaders.loadNetworkDB(inputPathPrefix + "protein_pair_interactions.json",
-    inputPathPrefix + "19.04_gene-data.json")
-    .where(col("score") > 0.45)
-
-  networkDB.where(col("score") > 0.45).write.json(outputPathPrefix + "networkDB_filtered045")
+  val networkDB = Loaders.loadNetworkDBLUT(inputPathPrefix + "protein_pair_interactions.json",
+    inputPathPrefix + "19.04_gene-data.json", 0.45)
+    .drop("scores", "neighbours")
 
   // loading genes, flatten and fix column names
   val geneDF = Loaders.loadGenes(inputPathPrefix + "19.04_gene-data.json")
@@ -40,20 +38,7 @@ def main(inputPathPrefix: String, outputPathPrefix: String): Unit = {
     .flattenDataframe()
     .fixColumnNames()
 
-  // TODO replace network data
-  val sym2id = genes.select("approved_symbol", "target__id").cache
-  val sym2idMap = ss.sparkContext.broadcast(sym2id.collect.map(r => (r.getString(0), r.getString(1))).toMap)
-  val mapList = udf((s: Seq[String]) => {
-    s.map(sym2idMap.value.withDefaultValue("")).filter(_.nonEmpty).distinct
-  })
-
-  val geneSym2Id = sdb
-    .join(sym2id, Seq("approved_symbol"), "inner")
-    .drop("approved_symbol")
-    .withColumnRenamed("nodes", "_nodes")
-    .withColumn("nodes", mapList(col("_nodes")))
-
-  val genesWithNodes = genes.join(geneSym2Id, Seq("target__id"), "left_outer")
+  val genesWithNodes = genes.join(networkDB, Seq("target__id"), "left_outer")
 
   genesWithNodes.write.json(outputPathPrefix + "targets/")
   Functions.saveJSONSchemaTo(genesWithNodes, outputPathPrefix / "targets")

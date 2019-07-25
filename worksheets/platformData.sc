@@ -40,6 +40,41 @@ object Loaders {
 
   }
 
+  def loadNetworkDBLUT(ndbPath: String, genesPath: String, score: Double)(implicit ss: SparkSession): DataFrame = {
+    val p2pRaw = ss.read.json(ndbPath)
+      .where(col("mi_score") > score or
+        (array_contains(col("source_databases"), "intact") and
+          (size(col("source_databases")) > 1)))
+      .selectExpr("interactorA_uniprot_name as A",
+        "interactorB_uniprot_name as B",
+      "mi_score as score")
+
+    val p2p = p2pRaw.union(p2pRaw.toDF("B", "score", "A").select("A", "score", "B"))
+      .distinct()
+
+    val genes = ss.read.json(genesPath)
+      .selectExpr("id",
+        "uniprot_accessions as accessions")
+      .withColumn("accession", explode(col("accessions")))
+      .drop("accessions")
+      .orderBy(col("accession"))
+      .cache
+
+    val p2pA = p2p.join(genes, genes("accession") === p2p("A"), "inner")
+      .withColumnRenamed("id", "A_id")
+      .drop("accession")
+
+    val doubleJoint = p2pA.join(genes, genes("accession") === p2pA("B"), "inner")
+      .withColumnRenamed("id", "B_id")
+      .drop("accession")
+
+    doubleJoint.groupBy(col("A_id").as("target__id"))
+      .agg(collect_set(col("B_id")).as("neighbours"),
+        collect_set(col("score")).as("scores"),
+        approx_count_distinct(col("B_id")).as("degree"))
+      .withColumn("nodes", array_union(array(col("target__id")), col("neighbours")))
+  }
+
   /** load string-db datasets using the mappings and the COG data
     * it needs the protein mapping to symbols gene ids
     */
