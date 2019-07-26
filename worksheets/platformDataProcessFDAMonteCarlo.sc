@@ -36,7 +36,7 @@ def main(inputPath: String, outputPathPrefix: String): Unit = {
 
   val fdas = Loaders.loadAggFDA(inputPath)
 
-  val udfProbVector = udf((permutations: Int, n_j: Int, n_i: Seq[Int], n: Int, prob: Double) => {
+  val udfProbVector = udf((permutations: Int, n_j: Int, n_i: Seq[Long], n: Int, prob: Double) => {
     // get the Pvector normalised by max element
     val Pvector = BDV(n_i.map(_.toDouble):_*) /:/ n.toDouble
     Pvector := Pvector /:/ breeze.linalg.max(Pvector)
@@ -50,21 +50,32 @@ def main(inputPath: String, outputPathPrefix: String): Unit = {
       mp(::,i) := Pvector(mult.samples.take(Pvector.size).toSeq)
     }
 
+    // compute LLR per event
+    for (i <- 0 until Pvector.size) {
+      val c = mp(i, ::).t
 
-
+      val zx: BDV[Double] = c - n_j
+      c *:* (breeze.numerics.log(c) - math.log(n_i(i))) + zx *:*
+        (breeze.numerics.log(zx) - math.log(n - n_j))
+    }
+    //myLLRs <- t(sapply(1:length(Pvector), function(i){ # each event across all permutations
+    //  //        logLRnum(Simulatej[i, ], n_i[i], n_j, n) (passing a vector simulatej[i,]
+    //  //    }))
+    //  //    myLLRs <- myLLRs - n_j * log(n_j) + n_j * log(n)
+    breeze.linalg.sum(mp)
   })
 
   val critVal = fdas
-    .withColumn("n_j", $"C" - $"A")
-    .withColumn("n_i", $"B" - $"A")
-    .withColumn("n", $"D" + ($"n_j" - $"n_i" + $"A"))
+    .withColumn("n_j", $"C" + $"A")
+    .withColumn("n_i", $"B" + $"A")
+    .withColumn("n", $"D" + $"n_j" + $"n_i" - $"A")
     .groupBy($"chembl_id")
     .agg(first($"n_j").as("n_j"),
       collect_list($"n_i").as("n_i"),
       first($"n").as("n"))
-    .withColumn("critVal", udfProbVector(lit(1000), $"n_j", $"n_i", $"n", lit(0.95)))
+    .withColumn("critVal", udfProbVector(lit(10000), $"n_j", $"n_i", $"n", lit(0.95)))
 
-  critVal.show(false)
+  critVal.show
 
   // https://gist.github.com/d0choa/9e4e197eae0310b4d045eb8aa5f13ec4#file-simple_llr_montecarlo-r-L18
   //## n_j is the total number of unique reports for the drug (int) uniq_report_ids_by_drug
