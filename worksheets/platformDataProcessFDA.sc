@@ -13,8 +13,6 @@ import org.apache.spark.sql._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 import org.apache.spark.storage.StorageLevel
-import org.apache.spark.ml.linalg.{DenseVector, Matrix, Vector, Vectors}
-import org.apache.spark.ml.feature.VectorAssembler
 import breeze.linalg._
 
 object Loaders {
@@ -116,60 +114,6 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     .withColumn("cterm", $"C" * (log($"C") - log($"C" + $"D")))
     .withColumn("acterm", ($"A" + $"C") * (log($"A" + $"C") - log($"A" + $"B" + $"C" + $"D")) )
     .withColumn("llr", when($"C" === 0, lit(0.0)).otherwise($"aterm" + $"cterm" - $"acterm"))
-    // Max_iae (llr_ij) (all ae for a drug)
-    // filter the drugs we want
-
-  val critVal = doubleAgg.groupBy($"chembl_id")
-    .agg(first($"C").as("C"),
-      collect_list($"B").as("B"),
-      first($"A").as("A"))
-
-  val assembler = new VectorAssembler()
-    .setInputCols(Array("B"))
-    .setOutputCol("bV")
-
-  val udfNorm = udf((v: DenseVector) => {
-    val maxI = v.argmax
-    v  v(maxI)
-  })
-  val critValV = assembler.transform(critVal)
-
-  // https://gist.github.com/d0choa/9e4e197eae0310b4d045eb8aa5f13ec4#file-simple_llr_montecarlo-r-L18
-  //logLRnum<-function(x,y, z, n){
-  //  logLR<-x*(log(x)-log(y))+ (z-x)*(log(z-x)-log(n-y))
-  //  return(logLR)
-  //}
-  //
-  //## n_j is the total number of unique reports for the drug (int)
-  //## n_i is the number of reports for event (vector)
-  //## n is total number of unique reports overall (int)
-  //## prob is probability of every event happening (ni / n) (vector)
-  //getCritVal2 <- function(R, n_j, n_i, n, Pvector, prob){
-  //#  set.seed(12) Simulatej
-  //    I <- length(Pvector)
-  //    ## Generate multinomially distributed random number vectors and compute multinomial probabilities
-  //    ## https://stat.ethz.ch/R-manual/R-devel/library/stats/html/Multinom.html
-  //    Simulatej<-rmultinom(R,size=n_j,prob=Pvector)
-  //    myLLRs<-matrix(0,I,R)
-  //    for (i in seq_along(Pvector)){
-  //        for (j in 1:R){
-  //            myLLRs[i,j]=logLRnum( Simulatej[i,j] ,n_i[i] , n_j, n )
-  //        }
-  //    }
-  //    myLLRs <- myLLRs - n_j*log(n_j)+n_j*log(n)
-  //    myLLRs[is.nan(myLLRs)] <- 0
-  //    myLLRs[is.na(myLLRs)] <- 0
-  //    mymax <- apply(myLLRs, 2, max)
-  //    critval <- quantile(mymax,  probs = prob)
-  //    critval01 <- quantile(mymax,  probs = .99)       #get cut off value
-  //    return( list(critval=critval, critval01=critval01, mymax=mymax) )
-  //}
-  //
-  //## the critical value is calculated for every drug independently
-  //## R = 1000 permutations
-  //mycritval <- getCritVal2(1000, out$totalbydrug[1], out$totalbyevent, totalreports, (out$totalbyevent / totalreports), .95)
-
-
 
   fdas.write.json(outputPathPrefix + "/fdas/")
   doubleAgg.write.json(outputPathPrefix + "/agg/")
