@@ -37,35 +37,45 @@ def main(inputPath: String, outputPathPrefix: String): Unit = {
   val fdas = Loaders.loadAggFDA(inputPath)
 
   val udfProbVector = udf((permutations: Int, n_j: Int, n_i: Seq[Long], n: Int, prob: Double) => {
-    // get the Pvector normalised by max element
-    val Pvector = BDV(n_i.map(_.toDouble):_*) /:/ n.toDouble
-    Pvector := Pvector /:/ breeze.linalg.max(Pvector)
+    import breeze.linalg._
+    import breeze.stats._
+    // get the Pvector normalised by max element not sure i need to do it
+    val Pvector = BDV(n_i.map(_.toDouble):_*) // /:/ n.toDouble
+    // Pvector := Pvector /:/ breeze.linalg.max(Pvector)
 
     // generate the multinorm permutations
     val mult = breeze.stats.distributions.Multinomial(Pvector)
-    val mp = BDM.zeros[Double](Pvector.size,permutations)
+    val mp = BDM.zeros[Double](Pvector.size, permutations)
+    val llrs = BDV.zeros[Double](Pvector.size)
 
     // generate permutations
     for (i <- 0 until permutations) {
       mp(::,i) := Pvector(mult.samples.take(Pvector.size).toSeq)
     }
 
-    // compute LLR per event
-    for (i <- 0 until Pvector.size) {
-      val c = mp(i, ::).t
+    val nj = n_j.toDouble
+    val N = n.toDouble
+    // compute all llrs in one go
+    val logmp: BDM[Double] = breeze.numerics.log(mp)
+    val zx: BDM[Double] = mp - nj
+    val logzx: BDM[Double] = breeze.numerics.log(zx)
+    val logNPvector: BDV[Double] = breeze.numerics.log(N - Pvector)
 
-      val zx: BDV[Double] = c - n_j
-      c *:* (breeze.numerics.log(c) - math.log(n_i(i))) + zx *:*
-        (breeze.numerics.log(zx) - math.log(n - n_j))
-    }
-    //myLLRs <- t(sapply(1:length(Pvector), function(i){ # each event across all permutations
-    //  //        logLRnum(Simulatej[i, ], n_i[i], n_j, n) (passing a vector simulatej[i,]
-    //  //    }))
-    //  //    myLLRs <- myLLRs - n_j * log(n_j) + n_j * log(n)
-    breeze.linalg.sum(mp)
+    // logLR <- x * (log(x) - log(y)) + (z-x) * (log(z - x) - log(n - y))
+    // myLLRs <- myLLRs - n_j * log(n_j) + n_j * log(n)
+
+    mp := mp *:* (logmp(::,*) - breeze.numerics.log(Pvector)) + zx *:* (logzx(::,*) - logNPvector)
+    mp := mp - nj * math.log(nj) + nj * math.log(N)
+
+    mp(mp.findAll(v => v.isNaN)) := 0.0
+    llrs := breeze.linalg.max(mp(*,::))
+
+    // get the prob percentile value as a critical value
+    DescriptiveStats.percentile(llrs.data, prob)
   })
 
   val critVal = fdas
+    .where($"chembl_id" === "CHEMBL1231")
     .withColumn("n_j", $"C" + $"A")
     .withColumn("n_i", $"B" + $"A")
     .withColumn("n", $"D" + $"n_j" + $"n_i" - $"A")
@@ -73,9 +83,11 @@ def main(inputPath: String, outputPathPrefix: String): Unit = {
     .agg(first($"n_j").as("n_j"),
       collect_list($"n_i").as("n_i"),
       first($"n").as("n"))
-    .withColumn("critVal", udfProbVector(lit(10000), $"n_j", $"n_i", $"n", lit(0.95)))
+    .withColumn("critVal", udfProbVector(lit(1000), $"n_j", $"n_i", $"n", lit(0.95)))
 
-  critVal.show
+  fdas.join(critVal.select("chembl_id", "critVal"), Seq("chembl_id"), "inner")
+    .write
+    .json(outputPathPrefix + "/agg_critval/")
 
   // https://gist.github.com/d0choa/9e4e197eae0310b4d045eb8aa5f13ec4#file-simple_llr_montecarlo-r-L18
   //## n_j is the total number of unique reports for the drug (int) uniq_report_ids_by_drug
@@ -111,8 +123,5 @@ def main(inputPath: String, outputPathPrefix: String): Unit = {
   //                                prob)) %>%
   //    mutate(significant = llr > critval)
 
-
-
-//  doubleAgg.write.json(outputPathPrefix + "/agg/")
 
 }
