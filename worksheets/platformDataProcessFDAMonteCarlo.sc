@@ -40,31 +40,32 @@ def main(inputPath: String, outputPathPrefix: String): Unit = {
     import breeze.linalg._
     import breeze.stats._
     // get the Pvector normalised by max element not sure i need to do it
-    val Pvector = BDV(n_i.map(_.toDouble):_*) /:/ n.toDouble
-    // Pvector := Pvector /:/ breeze.linalg.max(Pvector)
+    val nj = n_j.toDouble
+    val N = n.toDouble
+    val ni = convert(BDV(n_i.toArray), Double)
+    val Pvector = ni /:/ N
+    Pvector := Pvector /:/ breeze.linalg.max(Pvector)
 
     // generate the multinorm permutations
     val mult = breeze.stats.distributions.Multinomial(Pvector)
     val mp = BDM.zeros[Double](Pvector.size, permutations)
     val llrs = BDV.zeros[Double](Pvector.size)
 
-    // generate permutations
-    for (i <- 0 until permutations) {
-      mp(::,i) := Pvector(mult.samples.take(Pvector.size).toSeq)
+    // generate n_i columns
+    for (i <- 0 until ni.size) {
+      mp(i,::) := ni(mult.samples.take(permutations).toSeq).t
     }
 
-    val nj = n_j.toDouble
-    val N = n.toDouble
     // compute all llrs in one go
     val logmp: BDM[Double] = breeze.numerics.log(mp)
     val zx: BDM[Double] = mp - nj
     val logzx: BDM[Double] = breeze.numerics.log(zx)
-    val logNPvector: BDV[Double] = breeze.numerics.log(N - Pvector)
+    val logNni: BDV[Double] = breeze.numerics.log(N - ni)
 
     // logLR <- x * (log(x) - log(y)) + (z-x) * (log(z - x) - log(n - y))
     // myLLRs <- myLLRs - n_j * log(n_j) + n_j * log(n)
 
-    mp := mp *:* (logmp(::,*) - breeze.numerics.log(Pvector)) + zx *:* (logzx(::,*) - logNPvector)
+    mp := mp *:* (logmp(::,*) - breeze.numerics.log(ni)) + zx *:* (logzx(::,*) - logNni)
     mp := mp - nj * math.log(nj) + nj * math.log(N)
 
     mp(mp.findAll(v => v.isNaN)) := 0.0
@@ -75,7 +76,7 @@ def main(inputPath: String, outputPathPrefix: String): Unit = {
   })
 
   val critVal = fdas
-    .where($"chembl_id" === "CHEMBL1231")
+    .where($"chembl_id" === "CHEMBL25")
     .withColumn("n_j", $"C" + $"A")
     .withColumn("n_i", $"B" + $"A")
     .withColumn("n", $"D" + $"n_j" + $"n_i" - $"A")
@@ -85,7 +86,8 @@ def main(inputPath: String, outputPathPrefix: String): Unit = {
       first($"n").as("n"))
     .withColumn("critVal", udfProbVector(lit(1000), $"n_j", $"n_i", $"n", lit(0.95)))
 
-  fdas.join(critVal.select("chembl_id", "critVal"), Seq("chembl_id"), "inner")
+//  fdas.join(critVal.select("chembl_id", "critVal"), Seq("chembl_id"), "inner")
+  fdas.join(critVal, Seq("chembl_id"), "inner")
     .write
     .json(outputPathPrefix + "/agg_critval/")
 
