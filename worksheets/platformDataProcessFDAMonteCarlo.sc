@@ -40,7 +40,7 @@ def main(inputPath: String, outputPathPrefix: String): Unit = {
     import breeze.linalg._
     import breeze.stats._
     // get the Pvector normalised by max element not sure i need to do it
-    val Pvector = BDV(n_i.map(_.toDouble):_*) // /:/ n.toDouble
+    val Pvector = BDV(n_i.map(_.toDouble):_*) /:/ n.toDouble
     // Pvector := Pvector /:/ breeze.linalg.max(Pvector)
 
     // generate the multinorm permutations
