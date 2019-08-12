@@ -115,9 +115,9 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     .withColumn("acterm", ($"A" + $"C") * (log($"A" + $"C") - log($"A" + $"B" + $"C" + $"D")) )
     .withColumn("llr", when($"C" === 0, lit(0.0)).otherwise($"aterm" + $"cterm" - $"acterm"))
 
-  fdas.write.json(outputPathPrefix + "/fdas/")
+//  fdas.write.json(outputPathPrefix + "/fdas/")
   doubleAgg.write.json(outputPathPrefix + "/agg/")
-  doubleAgg
-    .join(fdas, Seq("chembl_id", "reaction_reactionmeddrapt"), "left")
-    .write.json(outputPathPrefix + "/agg_with_fdas/")
+//  doubleAgg
+//    .join(fdas, Seq("chembl_id", "reaction_reactionmeddrapt"), "left")
+//    .write.json(outputPathPrefix + "/agg_with_fdas/")
 }
