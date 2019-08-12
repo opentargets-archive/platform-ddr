@@ -14,7 +14,8 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.ml.linalg.{DenseVector, Matrix, Vectors}
-import breeze.linalg.{DenseVector => BDV, SparseVector => BSV, Vector => BV, DenseMatrix => BDM}
+import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV, SparseVector => BSV, Vector => BV}
+import breeze.stats.distributions.RandBasis
 
 object Loaders {
   def loadAggFDA(path: String)(implicit ss: SparkSession): DataFrame =
@@ -40,90 +41,61 @@ def main(inputPath: String, outputPathPrefix: String): Unit = {
     import breeze.linalg._
     import breeze.stats._
     // get the Pvector normalised by max element not sure i need to do it
-    val nj = n_j.toDouble
+    val z = n_j.toDouble
     val N = n.toDouble
-    val ni = convert(BDV(n_i.toArray), Double)
-    val Pvector = ni /:/ N
-    Pvector := Pvector /:/ breeze.linalg.max(Pvector)
+    val y = convert(BDV(n_i.toArray), Double)
+    val Pvector = y / N
+    val maxPv = breeze.linalg.max(Pvector)
+    Pvector := Pvector / maxPv
 
+    println(s"values nj $n_j ni size ${n_i.length} n $n")
     // generate the multinorm permutations
     val mult = breeze.stats.distributions.Multinomial(Pvector)
-    val mp = BDM.zeros[Double](Pvector.size, permutations)
-    val llrs = BDV.zeros[Double](Pvector.size)
+    val x = BDM.zeros[Double](Pvector.size, permutations)
 
     // generate n_i columns
-    for (i <- 0 until ni.size) {
-      mp(i,::) := ni(mult.samples.take(permutations).toSeq).t
+    for (i <- 0 until permutations) {
+      x(::, i) := convert(BDV(mult.samples.take(Pvector.size).toArray), Double)
     }
 
+    println(x.toString)
+
     // compute all llrs in one go
-    val logmp: BDM[Double] = breeze.numerics.log(mp)
-    val zx: BDM[Double] = mp - nj
+    val logx: BDM[Double] = breeze.numerics.log(x)
+    val zx: BDM[Double] = z - x
     val logzx: BDM[Double] = breeze.numerics.log(zx)
-    val logNni: BDV[Double] = breeze.numerics.log(N - ni)
+    val logNy: BDV[Double] = breeze.numerics.log(N - y)
+    val logy: BDV[Double] = breeze.numerics.log(y)
 
     // logLR <- x * (log(x) - log(y)) + (z-x) * (log(z - x) - log(n - y))
     // myLLRs <- myLLRs - n_j * log(n_j) + n_j * log(n)
+    val logxy = logx(::,*) -:- logy
+    val logzxy = logzx(::,*) -:- logNy
+    val logLR = (x *:* logxy +:+ zx *:* logzxy) - z * math.log(z) + z * math.log(N)
 
-    mp := mp *:* (logmp(::,*) - breeze.numerics.log(ni)) + zx *:* (logzx(::,*) - logNni)
-    mp := mp - nj * math.log(nj) + nj * math.log(N)
+    logLR(logLR.findAll(e => e.isNaN || e.isInfinity)) := 0.0
 
-    mp(mp.findAll(v => v.isNaN)) := 0.0
-    llrs := breeze.linalg.max(mp(*,::))
+    val llrs = breeze.linalg.max(logLR(*,::))
+
+    println(s"LLR ${llrs.toString}")
 
     // get the prob percentile value as a critical value
-    DescriptiveStats.percentile(llrs.data, prob)
+    val critVal = DescriptiveStats.percentile(llrs.data, prob)
+    println(s"FDA CRITVAL ${critVal.toString}")
+
+    critVal
   })
 
   val critVal = fdas
-    .where($"chembl_id" === "CHEMBL25")
-    .withColumn("n_j", $"C" + $"A")
-    .withColumn("n_i", $"B" + $"A")
-    .withColumn("n", $"D" + $"n_j" + $"n_i" - $"A")
+    .where($"chembl_id" === "CHEMBL714")
+    .withColumn("n", $"D" + $"uniq_report_ids_by_drug" + $"uniq_report_ids_by_reaction" - $"A")
     .groupBy($"chembl_id")
-    .agg(first($"n_j").as("n_j"),
-      collect_list($"n_i").as("n_i"),
+    .agg(first($"uniq_report_ids_by_drug").as("n_j"),
+      collect_list($"uniq_report_ids_by_reaction").as("n_i"),
       first($"n").as("n"))
     .withColumn("critVal", udfProbVector(lit(1000), $"n_j", $"n_i", $"n", lit(0.95)))
 
-//  fdas.join(critVal.select("chembl_id", "critVal"), Seq("chembl_id"), "inner")
-  fdas.join(critVal, Seq("chembl_id"), "inner")
+  fdas.join(critVal.select("chembl_id", "critVal"), Seq("chembl_id"), "inner")
     .write
     .json(outputPathPrefix + "/agg_critval/")
-
-  // https://gist.github.com/d0choa/9e4e197eae0310b4d045eb8aa5f13ec4#file-simple_llr_montecarlo-r-L18
-  //## n_j is the total number of unique reports for the drug (int) uniq_report_ids_by_drug
-  //## n_i is the number of reports for event (vector) uniq_report_ids_by_reaction
-  //## n is total number of unique reports overall (int) uniqReports
-  //## Pvector (n_i / n) (all events for a single drug)
-  //## prob is probability of every event happening Pvector (vector) = 0.95
-  //    ##  set.seed(12)
-  //    I <- length(Pvector)
-  //    Simulatej<-rmultinom(R,size=n_j,prob=Pvector)
-  //    myLLRs <- t(sapply(1:length(Pvector), function(i){ # each event across all permutations
-  //        logLRnum(Simulatej[i, ], n_i[i], n_j, n) (passing a vector simulatej[i,]
-  //    }))
-  //    myLLRs <- myLLRs - n_j * log(n_j) + n_j * log(n)
-  //    myLLRs[is.na(myLLRs)] <- 0
-  //    mymax <- apply(myLLRs, 2, max) (by column (permutation-wise get the max LLR)
-  //    critval <- quantile(mymax,  probs = prob) (get the top quantile per final vector of max llrs permutation across
-  //    return(critval)
-  //}
-  //logLRnum<-function(x, y, z, n){
-  //  logLR <- x * (log(x) - log(y)) + (z-x) * (log(z - x) - log(n - y))
-  //  return(logLR)
-  //}
-  //permutations <- 1000
-  //prob <- 0.95
-  //all <- all %>%
-  //    group_by(drug) %>%
-  //    mutate(critval = getCritVal(permutations,
-  //                                totalbydrug[1],
-  //                                totalbyreaction,
-  //                                totalreports[1],
-  //                                pvector,
-  //                                prob)) %>%
-  //    mutate(significant = llr > critval)
-
-
 }
