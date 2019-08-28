@@ -33,8 +33,8 @@ object Loaders {
 
     val columns = Seq("safetyreportid",
       "serious",
+      "seriousnessdeath",
       "receivedate",
-      "primarysource.reportercountry as primarysourcecountry",
       "primarysource.qualification as qualification",
       "patient")
     fda.selectExpr(columns:_*)
@@ -64,7 +64,8 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     // after explode this we will have reaction-drug pairs
     .withColumn("drug", explode(col("patient.drug")))
     // just the fields we want as columns
-    .selectExpr("safetyreportid", "serious", "receivedate", "primarysourcecountry",
+    .selectExpr("safetyreportid", "serious", "receivedate",
+      "ifnull(seriousnessdeath, '0') as seriousness_death",
       "qualification",
       "lower(reaction.reactionmeddrapt) as reaction_reactionmeddrapt" ,
       "ifnull(lower(drug.medicinalproduct), '') as drug_medicinalproduct",
@@ -73,7 +74,7 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
       "ifnull(drug.openfda.substance_name, array()) as drug_substance_name_list",
       "drug.drugcharacterization as drugcharacterization")
     // we dont need these columns anymore
-    .drop("patient", "reaction", "drug", "_reaction")
+    .drop("patient", "reaction", "drug", "_reaction", "seriousnessdeath")
     // delicated filter which should be looked at FDA API to double check
     .where(col("qualification").isInCollection(Seq("1", "2", "3")) and col("drugcharacterization") === "1")
     // drug names comes in a large collection of multiple synonyms but it comes spread across multiple fields
@@ -85,7 +86,7 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     // rubbish out
     .drop("drug_generic_name_list", "drug_substance_name_list", "_drug_name")
     .where($"drug_name".isNotNull and $"reaction_reactionmeddrapt".isNotNull and
-      $"safetyreportid".isNotNull)
+      $"safetyreportid".isNotNull and $"seriousness_death" === "0" )
     // and we will need this processed data later on
     .join(drugList, Seq("drug_name"), "inner")
     .persist(StorageLevel.DISK_ONLY)
@@ -113,7 +114,8 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     .withColumn("aterm", $"A" * (log($"A") - log($"A" + $"B")))
     .withColumn("cterm", $"C" * (log($"C") - log($"C" + $"D")))
     .withColumn("acterm", ($"A" + $"C") * (log($"A" + $"C") - log($"A" + $"B" + $"C" + $"D")) )
-    .withColumn("llr", when($"C" === 0, lit(0.0)).otherwise($"aterm" + $"cterm" - $"acterm"))
+    .withColumn("llr", $"aterm" + $"cterm" - $"acterm")
+//    .withColumn("llr", when($"C" === 0, lit(0.0)).otherwise($"aterm" + $"cterm" - $"acterm"))
 
 //  fdas.write.json(outputPathPrefix + "/fdas/")
   doubleAgg.write.json(outputPathPrefix + "/agg/")
