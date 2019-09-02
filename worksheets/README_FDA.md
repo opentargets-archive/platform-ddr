@@ -31,14 +31,13 @@ elasticdump --input=http://localhost:9200/19.06_drug-data \
 
 You just need to copy from the GCS `gs://ot-snapshots/eirini/eirini/raw/`, although that
 dataset is already copied into the current machine that has been used to run this pipeline.
-That machine is `be-debian-worker-ddr2-16`. You might want to
+You might want to
 
-1. stop it
-2. change to 96 cores
-3. run the pipeline
+1. start the machine `be-debian-worker-openfda` and login
+2. copy the data if it is a empty machine otherwise dont copy or install anything
+3. run the pipeline script (it will take around ~5min)
 4. copy results to GCS
 5. stop the machine
-6. change again to 4 cores because it is currently need it
 
 #### Produce the raw jsonl from scratch
 
