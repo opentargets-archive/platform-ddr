@@ -100,7 +100,6 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     .drop("drug_generic_name_list", "drug_substance_name_list", "_drug_name")
     .where($"drug_name".isNotNull and $"reaction_reactionmeddrapt".isNotNull and
       $"safetyreportid".isNotNull and $"seriousness_death" === "0" )
-    .persist(StorageLevel.DISK_ONLY)
 
     val fdas = fdasFiltered
     // and we will need this processed data later on
@@ -108,11 +107,11 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
 
   // total unique report ids count grouped by reaction
   val aggByReactions = fdas.groupBy(col("reaction_reactionmeddrapt"))
-    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_reaction"))
+    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_reaction")).persist()
 
   // total unique report ids count grouped by drug name
   val aggByDrugs = fdas.groupBy(col("chembl_id"))
-    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_drug"))
+    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_drug")).persist()
 
   // total unique report ids
   val uniqReports = fdas.select("safetyreportid").distinct.count
@@ -138,11 +137,11 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
 
   // total unique report ids count grouped by reaction
   val aggByReactionsT = fdasT.groupBy(col("reaction_reactionmeddrapt"))
-    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_reaction"))
+    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_reaction")).persist()
 
   // total unique report ids count grouped by target id
   val aggByTargets = fdasT.groupBy($"target_id")
-    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_target"))
+    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_target")).persist()
 
   // same LLR but by target id instead of chembl drug id
   val doubleAggTargets = fdasT.groupBy($"target_id", $"reaction_reactionmeddrapt")
@@ -150,7 +149,7 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     .withColumnRenamed("uniq_report_ids", "A")
     .join(aggByTargets, Seq("target_id"), "inner")
     .join(aggByReactionsT, Seq("reaction_reactionmeddrapt"), "inner")
-    .withColumn("C", col("uniq_report_ids_by_drug") - col("A"))
+    .withColumn("C", col("uniq_report_ids_by_target") - col("A"))
     .withColumn("B", col("uniq_report_ids_by_reaction") - col("A"))
     .withColumn("D", lit(uniqReportsT) - col("uniq_report_ids_by_target") - col("uniq_report_ids_by_reaction") + col("A"))
     .withColumn("aterm", $"A" * (log($"A") - log($"A" + $"B")))
