@@ -28,6 +28,16 @@ object Loaders {
     drugList
   }
 
+  def loadTargetListFromDrugs(path: String)(implicit ss: SparkSession): DataFrame = {
+    val tList = ss.read.json(path)
+      .selectExpr("id as chembl_id", "mechanisms_of_action")
+      .withColumn("mechanism_of_action",  explode(col("mechanisms_of_action")))
+      .withColumn("target_component", explode(col("mechanism_of_action.target_components")))
+      .selectExpr("chembl_id", "target_component.ensembl as target_id")
+
+    tList
+  }
+
   def loadFDA(path: String)(implicit ss: SparkSession): DataFrame = {
     val fda = ss.read.json(path)
 
@@ -55,7 +65,9 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
   import ss.implicits._
 
   // the curated drug list we want
-  val drugList = Loaders.loadDrugList(drugSetPath).cache()
+  val targetList = Loaders.loadTargetListFromDrugs(drugSetPath)
+  val drugList = Loaders.loadDrugList(drugSetPath)
+    .join(targetList, Seq("chembl_id"), "left_outer").cache()
 
   // load FDA raw lines
   val lines = Loaders.loadFDA(inputPathPrefix)
@@ -115,11 +127,34 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     .withColumn("cterm", $"C" * (log($"C") - log($"C" + $"D")))
     .withColumn("acterm", ($"A" + $"C") * (log($"A" + $"C") - log($"A" + $"B" + $"C" + $"D")) )
     .withColumn("llr", $"aterm" + $"cterm" - $"acterm")
-//    .withColumn("llr", when($"C" === 0, lit(0.0)).otherwise($"aterm" + $"cterm" - $"acterm"))
 
-//  fdas.write.json(outputPathPrefix + "/fdas/")
-  doubleAgg.write.json(outputPathPrefix + "/agg/")
-//  doubleAgg
-//    .join(fdas, Seq("chembl_id", "reaction_reactionmeddrapt"), "left")
-//    .write.json(outputPathPrefix + "/agg_with_fdas/")
+  val fdasT = fdas.where($"target_id".isNotNull).persist(StorageLevel.DISK_ONLY)
+
+  // total unique report ids
+  val uniqReportsT = fdasT.select("safetyreportid").distinct.count
+
+  // total unique report ids count grouped by reaction
+  val aggByReactionsT = fdasT.groupBy(col("reaction_reactionmeddrapt"))
+    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_reaction"))
+
+  // total unique report ids count grouped by target id
+  val aggByTargets = fdasT.groupBy($"target_id")
+    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids_by_target"))
+
+  // same LLR but by target id instead of chembl drug id
+  val doubleAggTargets = fdasT.groupBy($"target_id", $"reaction_reactionmeddrapt")
+    .agg(countDistinct(col("safetyreportid")).as("uniq_report_ids"))
+    .withColumnRenamed("uniq_report_ids", "A")
+    .join(aggByTargets, Seq("target_id"), "inner")
+    .join(aggByReactionsT, Seq("reaction_reactionmeddrapt"), "inner")
+    .withColumn("C", col("uniq_report_ids_by_drug") - col("A"))
+    .withColumn("B", col("uniq_report_ids_by_reaction") - col("A"))
+    .withColumn("D", lit(uniqReportsT) - col("uniq_report_ids_by_target") - col("uniq_report_ids_by_reaction") + col("A"))
+    .withColumn("aterm", $"A" * (log($"A") - log($"A" + $"B")))
+    .withColumn("cterm", $"C" * (log($"C") - log($"C" + $"D")))
+    .withColumn("acterm", ($"A" + $"C") * (log($"A" + $"C") - log($"A" + $"B" + $"C" + $"D")) )
+    .withColumn("llr", $"aterm" + $"cterm" - $"acterm")
+
+  doubleAgg.write.json(outputPathPrefix + "/agg_by_chembl/")
+  doubleAggTargets.write.json(outputPathPrefix + "/agg_by_target/")
 }
