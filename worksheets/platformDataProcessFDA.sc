@@ -23,7 +23,6 @@ object Loaders {
       .withColumn("_drug_name", explode(col("drug_names")))
       .withColumn("drug_name", lower(col("_drug_name")))
       .select("chembl_id", "drug_name")
-      .orderBy(col("drug_name"))
 
     drugList
   }
@@ -33,7 +32,7 @@ object Loaders {
       .selectExpr("id as chembl_id", "mechanisms_of_action")
       .withColumn("mechanism_of_action",  explode(col("mechanisms_of_action")))
       .withColumn("target_component", explode(col("mechanism_of_action.target_components")))
-      .selectExpr("chembl_id", "target_component.ensembl as target_id")
+      .selectExpr("chembl_id", "target_component.ensembl as target_id").distinct()
 
     tList
   }
@@ -67,12 +66,14 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
   // the curated drug list we want
   val targetList = Loaders.loadTargetListFromDrugs(drugSetPath)
   val drugList = Loaders.loadDrugList(drugSetPath)
-    .join(targetList, Seq("chembl_id"), "left_outer").cache()
+    .join(targetList, Seq("chembl_id"), "left_outer")
+    .orderBy(col("drug_name"))
+    .cache()
 
   // load FDA raw lines
   val lines = Loaders.loadFDA(inputPathPrefix)
 
-  val fdas = lines.withColumn("reaction", explode(col("patient.reaction")))
+  val fdasFiltered = lines.withColumn("reaction", explode(col("patient.reaction")))
     // after explode this we will have reaction-drug pairs
     .withColumn("drug", explode(col("patient.drug")))
     // just the fields we want as columns
@@ -99,9 +100,11 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     .drop("drug_generic_name_list", "drug_substance_name_list", "_drug_name")
     .where($"drug_name".isNotNull and $"reaction_reactionmeddrapt".isNotNull and
       $"safetyreportid".isNotNull and $"seriousness_death" === "0" )
+    .persist(StorageLevel.DISK_ONLY)
+
+    val fdas = fdasFiltered
     // and we will need this processed data later on
     .join(drugList, Seq("drug_name"), "inner")
-    .persist(StorageLevel.DISK_ONLY)
 
   // total unique report ids count grouped by reaction
   val aggByReactions = fdas.groupBy(col("reaction_reactionmeddrapt"))
