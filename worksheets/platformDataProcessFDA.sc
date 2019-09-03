@@ -128,7 +128,7 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     .withColumn("acterm", ($"A" + $"C") * (log($"A" + $"C") - log($"A" + $"B" + $"C" + $"D")) )
     .withColumn("llr", $"aterm" + $"cterm" - $"acterm")
 
-  val fdasT = fdas.where($"target_id".isNotNull).persist(StorageLevel.DISK_ONLY)
+  val fdasT = fdas.where($"target_id".isNotNull)
 
   // total unique report ids
   val uniqReportsT = fdasT.select("safetyreportid").distinct.count
