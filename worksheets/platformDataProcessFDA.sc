@@ -118,8 +118,8 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String,
 
   val fdasFiltered = fdasF
     .join(broadcast(bl),
-      fdasF("reaction_reactionmeddrapt") === bl("reactions"),
-      "left_outer")
+      fdasF("reaction_reactionmeddrapt") =!= bl("reactions"),
+      "left_semi")
 
   val fdas = fdasFiltered
   // and we will need this processed data later on
