@@ -48,10 +48,22 @@ object Loaders {
       "patient")
     fda.selectExpr(columns:_*)
   }
+
+  def loadBlackList(path: String)(implicit ss: SparkSession): DataFrame = {
+    val bl = ss.read
+      .option("sep", "\t")
+      .option("ignoreLeadingWhiteSpace", "true")
+      .option("ignoreTrailingWhiteSpace", "true")
+      .csv(path)
+
+    bl.toDF("reactions")
+      .orderBy(col("reactions").asc)
+  }
 }
 
 @main
-def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String): Unit = {
+def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String,
+         blackListPath: String): Unit = {
   val sparkConf = new SparkConf()
     .set("spark.driver.maxResultSize", "0")
     .setAppName("similarities-loaders")
@@ -63,17 +75,20 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
 
   import ss.implicits._
 
+  // load blacklist
+  val bl = Loaders.loadBlackList(blackListPath).cache()
+
   // the curated drug list we want
   val targetList = Loaders.loadTargetListFromDrugs(drugSetPath)
   val drugList = Loaders.loadDrugList(drugSetPath)
-    .join(targetList, Seq("chembl_id"), "left_outer")
+    .join(targetList, Seq("chembl_id"), "left")
     .orderBy(col("drug_name"))
     .cache()
 
   // load FDA raw lines
   val lines = Loaders.loadFDA(inputPathPrefix)
 
-  val fdasFiltered = lines.withColumn("reaction", explode(col("patient.reaction")))
+  val fdasF = lines.withColumn("reaction", explode(col("patient.reaction")))
     // after explode this we will have reaction-drug pairs
     .withColumn("drug", explode(col("patient.drug")))
     // just the fields we want as columns
@@ -101,8 +116,13 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String)
     .where($"drug_name".isNotNull and $"reaction_reactionmeddrapt".isNotNull and
       $"safetyreportid".isNotNull and $"seriousness_death" === "0" )
 
-    val fdas = fdasFiltered
-    // and we will need this processed data later on
+  val fdasFiltered = fdasF
+    .join(broadcast(bl),
+      fdasF("reaction_reactionmeddrapt") === bl("reactions"),
+      "left_outer")
+
+  val fdas = fdasFiltered
+  // and we will need this processed data later on
     .join(drugList, Seq("drug_name"), "inner")
 
   // total unique report ids count grouped by reaction
