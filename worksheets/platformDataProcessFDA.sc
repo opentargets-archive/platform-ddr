@@ -76,7 +76,9 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String,
   import ss.implicits._
 
   // load blacklist
-  val bl = Loaders.loadBlackList(blackListPath).cache()
+  val bl = ss.sparkContext
+    .broadcast(Loaders.loadBlackList(blackListPath).as[String]
+      .collectAsList())
 
   // the curated drug list we want
   val targetList = Loaders.loadTargetListFromDrugs(drugSetPath)
@@ -116,10 +118,9 @@ def main(drugSetPath: String, inputPathPrefix: String, outputPathPrefix: String,
     .where($"drug_name".isNotNull and $"reaction_reactionmeddrapt".isNotNull and
       $"safetyreportid".isNotNull and $"seriousness_death" === "0" )
 
+  // remove blacklisted reactions
   val fdasFiltered = fdasF
-    .join(broadcast(bl),
-      fdasF("reaction_reactionmeddrapt") =!= bl("reactions"),
-      "left_semi")
+    .where(not($"reaction_reactionmeddrapt".isInCollection(bl.value)))
 
   val fdas = fdasFiltered
   // and we will need this processed data later on
